@@ -148,8 +148,8 @@ class MODPOTrainer(DPOTrainer):
         chosen_margin_reward: torch.FloatTensor,
         rejected_margin_reward: torch.FloatTensor,
     ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
-        chosen_rewards   = (1/self.w[0])*(self.beta * (policy_chosen_logps   - reference_chosen_logps)   - chosen_margin_reward   @ self.w[1:])
-        rejected_rewards = (1/self.w[0])*(self.beta * (policy_rejected_logps - reference_rejected_logps) - rejected_margin_reward @ self.w[1:])
+        chosen_rewards   = (1/(self.w[0] + 0.01))*(self.beta * (policy_chosen_logps   - reference_chosen_logps)   - chosen_margin_reward   @ self.w[1:])
+        rejected_rewards = (1/(self.w[0] + 0.01))*(self.beta * (policy_rejected_logps - reference_rejected_logps) - rejected_margin_reward @ self.w[1:])
 
         logits = chosen_rewards - rejected_rewards
         if self.loss_type == "sigmoid":
