@@ -19,6 +19,8 @@ from .raw_data.utils import DEFAULT_PROMPT_TEMPLATE
 REAL_DATASET_CONFIGS: Dict[str, RawDatasetPreprocessor] = {
     ##### hh-rlhf (https://huggingface.co/datasets/Anthropic/hh-rlhf) #####
     "Anthropic/hh-rlhf": HhRlhfRDP,
+    "Anthropic/hh-rlhf-helpful": partial(HhRlhfRDP, subset="helpful-base"),
+    "Anthropic/hh-rlhf-harmless": partial(HhRlhfRDP, subset="harmless-base"),
 
     ##### PKU-SafeRLHF (https://huggingface.co/datasets/PKU-Alignment/PKU-SafeRLHF) #####
     **{

@@ -23,17 +23,18 @@ def extract_anthropic_prompt_and_response(prompt_and_response):
 @dataclass
 class HhRlhfRDP(RawDatasetPreprocessor):
     path: Optional[str] = "Anthropic/hh-rlhf"
+    subset: Optional[str] = None
 
     # def __post_init__(self):
     #     assert self.prompt_template == "\n\nHuman: {prompt}\n\nAssistant:"
 
     def _get_raw_dataset(self, split):
         if split == "train":
-            return load_dataset(self.path, split="train").train_test_split(test_size=0.1, seed=0)["train"]
+            return load_dataset(self.path, self.subset, split="train").train_test_split(test_size=0.1, seed=0)["train"]
         elif split == "validation":
-            return load_dataset(self.path, split="train").train_test_split(test_size=0.1, seed=0)["test"]
+            return load_dataset(self.path, self.subset, split="train").train_test_split(test_size=0.1, seed=0)["test"]
         elif split == "test":
-            return load_dataset(self.path, split="test")
+            return load_dataset(self.path, self.subset, split="test")
         else:
             raise NotImplementedError
 
