@@ -16,7 +16,7 @@ export PYTHONPATH=.
 # max_length=512 to avoid OOM on long UltraFeedback sequences
 BATCH_ARGS="--training_args.per_device_train_batch_size 1 --training_args.per_device_eval_batch_size 1 --training_args.gradient_accumulation_steps 8"
 MAX_LEN_ARGS="--max_length 512"
-GRAD_CKPT_ARGS="--training_args.gradient_checkpointing true"
+
 
 # 1. Train SFT Reference (Helpfulness)
 echo "=== Step 1: Training SFT Reference on UltraFeedback Helpfulness ==="
@@ -26,7 +26,7 @@ PYTHONPATH=. accelerate launch scripts/examples/sft/sft.py \
     --training_args.output_dir $OUTPUT_ROOT/sft_helpfulness \
     --training_args.run_name rq1_uf_sft_helpfulness \
     --training_args.num_train_epochs 1 \
-    $BATCH_ARGS $MAX_LEN_ARGS $GRAD_CKPT_ARGS
+    $BATCH_ARGS $MAX_LEN_ARGS
 
 
 # 2. Train Margin Reward Model (Honesty)
@@ -37,7 +37,7 @@ PYTHONPATH=. accelerate launch scripts/examples/dpo/dpo.py \
     --training_args.output_dir $OUTPUT_ROOT/rm_honesty \
     --training_args.run_name rq1_uf_rm_honesty \
     --training_args.num_train_epochs 1 \
-    $BATCH_ARGS $MAX_LEN_ARGS $GRAD_CKPT_ARGS
+    $BATCH_ARGS $MAX_LEN_ARGS
 
 # 3. Train MODPO (Helpfulness vs Honesty)
 echo "=== Step 3: Training MODPO models ==="
@@ -51,7 +51,7 @@ for w in 0.0 0.5 1.0; do
         --training_args.output_dir $OUTPUT_ROOT/modpo_w${w} \
         --training_args.run_name rq1_uf_modpo_w${w} \
         --training_args.num_train_epochs 1 \
-        $BATCH_ARGS $MAX_LEN_ARGS $GRAD_CKPT_ARGS
+        $BATCH_ARGS $MAX_LEN_ARGS
 done
 
 # 4. Generate responses (SFT baseline + all MODPO models)
