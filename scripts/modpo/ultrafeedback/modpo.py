@@ -97,9 +97,34 @@ print_local_main(sft_model)
 print_local_main(script_args.peft_config)
 
 # peft
+# peft
 model = prepare_model_for_peft(sft_model, peft_config=script_args.peft_config, args=script_args.training_args)
+
 # load frozon margin reward weights as lora
-model.load_adapter(script_args.margin_reward_model_name, adapter_name="margin_reward")
+print_local_main(f"Attempting to load adapter from: {script_args.margin_reward_model_name}")
+try:
+    model.load_adapter(script_args.margin_reward_model_name, adapter_name="margin_reward")
+except Exception as e:
+    print_local_main(f"ERROR: Failed to load adapter using model.load_adapter: {e}")
+    print_local_main("Attempting manual loading of adapter config and weights...")
+    try:
+        from peft import PeftConfig
+        from peft.utils import load_peft_weights, set_peft_model_state_dict
+        
+        # Load config manually
+        peft_config = PeftConfig.from_pretrained(script_args.margin_reward_model_name)
+        # Ensure it's added to the model's config dict
+        model.peft_config["margin_reward"] = peft_config
+        # Inject adapter
+        model.base_model.inject_adapter(model, "margin_reward")
+        
+        # Load weights
+        adapters_weights = load_peft_weights(script_args.margin_reward_model_name, device=model.device)
+        set_peft_model_state_dict(model, adapters_weights, adapter_name="margin_reward")
+        print_local_main(f"Successfully loaded 'margin_reward' adapter manually.")
+    except Exception as e_manual:
+        print_local_main(f"CRITICAL ERROR: Manual loading also failed: {e_manual}")
+        raise e_manual
 
 # tokenizer
 tokenizer = AutoTokenizer.from_pretrained(script_args.sft_model_name, trust_remote_code=True)
