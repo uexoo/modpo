@@ -115,6 +115,12 @@ except Exception as e:
         peft_config = PeftConfig.from_pretrained(script_args.margin_reward_model_name)
         # Ensure it's added to the model's config dict
         model.peft_config["margin_reward"] = peft_config
+        
+        # CRITICAL FIX: Ensure it's also added to the base_model's config dict if it exists
+        # This is likely what caused the KeyError in inject_adapter
+        if hasattr(model.base_model, "peft_config"):
+             model.base_model.peft_config["margin_reward"] = peft_config
+        
         # Inject adapter
         model.base_model.inject_adapter(model, "margin_reward")
         
