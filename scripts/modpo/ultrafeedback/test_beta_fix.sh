@@ -46,7 +46,6 @@ accelerate launch --num_processes 1 --mixed_precision fp16 $PATCHED_SCRIPT \
     --training_args.per_device_train_batch_size 1 \
     --training_args.gradient_accumulation_steps 8 \
     --training_args.learning_rate 1e-4 \
-    --training_args.fp16 True \
     --training_args.report_to none
 
 echo ""
