@@ -84,17 +84,20 @@ if __name__ == "__main__":
     )
 
     results = []
+    max_input_length = script_args.max_length - 256  # Reserve 256 tokens for generation
     for idx in tqdm.tqdm(range(0, len(eval_dataset), script_args.batch_size)):
         batch = eval_dataset[idx: idx + script_args.batch_size]
         prompt_tokenized = tokenizer(
             batch["prompt"], 
             return_tensors="pt", 
             padding=True,
+            truncation=True,
+            max_length=max_input_length,
         )
         output_tokenized = model.generate(
             input_ids=prompt_tokenized["input_ids"].cuda(),
             attention_mask=prompt_tokenized["attention_mask"].cuda(),
-            max_length=script_args.max_length,
+            max_new_tokens=256,
             do_sample=False,
         )
         output = tokenizer.batch_decode(output_tokenized, skip_special_tokens=True)
