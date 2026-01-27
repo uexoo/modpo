@@ -21,8 +21,8 @@ echo "=== MODPO Debug: Negative Beta Diagnostic ==="
 echo "Output: $OUTPUT_ROOT"
 echo ""
 
-# Train for w=0.0 and w=1.0
-for W in 0.0 1.0; do
+# Train for w=0.1 (Stable, no 100x scaling)
+for W in 0.1; do
     OUTPUT_DIR="$OUTPUT_ROOT/modpo_w${W}"
     
     echo "Training w=$W with NEGATIVE beta..."

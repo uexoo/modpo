@@ -24,7 +24,7 @@ echo "Output: $OUTPUT_ROOT"
 echo ""
 
 # Train for each weight
-for W in 0.0 0.5 1.0; do
+for W in 0.1 0.5 1.0; do
     OUTPUT_DIR="$OUTPUT_ROOT/modpo_w${W}"
     
     if [ -d "$OUTPUT_DIR/best_checkpoint" ]; then
