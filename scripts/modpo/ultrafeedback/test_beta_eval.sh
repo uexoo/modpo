@@ -66,11 +66,11 @@ print(f"Loaded {len(fixed_gens)} generations from fixed w=0.0")
 # Try different paths for original generations
 comparisons = []
 
-# Check RQ1 generation output locations
+# Correct path structure: modpo_w0.0/generations/
 orig_paths = [
-    ("Original w=0.0", ORIG_DIR / "generations" / "modpo_w0.0"),
-    ("Original w=1.0", ORIG_DIR / "generations" / "modpo_w1.0"),
-    ("SFT baseline", ORIG_DIR / "generations" / "sft_helpfulness"),
+    ("Original w=0.0", ORIG_DIR / "modpo_w0.0" / "generations"),
+    ("Original w=1.0", ORIG_DIR / "modpo_w1.0" / "generations"),
+    ("SFT baseline", ORIG_DIR / "sft_helpfulness" / "generations"),
 ]
 
 for name, path in orig_paths:
