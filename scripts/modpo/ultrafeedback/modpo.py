@@ -164,10 +164,10 @@ trainer = MODPOTrainer(
 if Accelerator().is_local_main_process:
     trainer.model.print_trainable_parameters()
 
-# NOTE: For UltraFeedback, objectives are Positive (Reward).
-# Modpo minimizes Margin Reward (treats it as Cost).
-# To handle this, we negate the beta for the margin wrapper.
-margin_beta = -script_args.beta
+# NOTE: UltraFeedback and BeaverTails both use positive rewards for both dimensions.
+# The margin reward should use positive beta (same as BeaverTails) to maximize the
+# margin objective. Previous negative beta was incorrectly inverting the objective.
+margin_beta = script_args.beta
 
 trainer.set_wrapped_margin_reward_model_list(
     RewardWrapperList([
