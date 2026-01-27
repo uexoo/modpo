@@ -131,7 +131,7 @@ def main():
     print("-" * 60)
     for r in all_results:
         ci = f"[{r['ci_lower']:.1%}, {r['ci_upper']:.1%}]"
-        print(f"{r['weight']:<10} {r['dimension']:<15} {r['win_rate']:.1%:<15} {ci:<20}")
+        print(f"{r['weight']:<10} {r['dimension']:<15} {r['win_rate']:.1%}         {ci:<20}")
 
 
 if __name__ == "__main__":
