@@ -35,13 +35,13 @@ for W in 0.0 1.0; do
         --w $W \
         --beta 0.1 \
         --margin_beta 0.1 \
-        --max_length 1024 \
+        --max_length 512 \
         --training_args.output_dir $OUTPUT_DIR \
         --training_args.run_name debug_pos_beta_w${W} \
         --training_args.num_train_epochs 1 \
         --training_args.max_steps 200 \
-        --training_args.per_device_train_batch_size 4 \
-        --training_args.gradient_accumulation_steps 2 \
+        --training_args.per_device_train_batch_size 1 \
+        --training_args.gradient_accumulation_steps 8 \
         --training_args.learning_rate 1e-4 \
         --training_args.report_to wandb \
         --training_args.logging_steps 1
