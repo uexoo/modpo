@@ -193,6 +193,11 @@ class MODPOTrainer(DPOTrainer):
             policy_chosen_logps.dtype).to(self.accelerator.device) # (B*2, n-1)
         chosen_margin_rewards, rejected_margin_rewards = margin_rewards.chunk(2) # (B, n-1)
          
+        # Calculate raw margin stats for debugging
+        # margin_rewards is shape (B*2, n-1), so we want mean/std over batch
+        margin_raw_mean = margin_rewards.mean().item()
+        margin_raw_std = margin_rewards.std().item()
+
         losses, chosen_rewards, rejected_rewards = self.modpo_loss(
             policy_chosen_logps,
             policy_rejected_logps,
@@ -205,7 +210,9 @@ class MODPOTrainer(DPOTrainer):
         accuracies = (chosen_rewards > rejected_rewards).float()
 
         prefix = "eval_" if train_eval == "eval" else ""
-        metrics[f"{prefix}rewards/margins"] = (chosen_rewards - rejected_rewards).cpu()
+        metrics[f"{prefix}rewards/margins"] = (chosen_rewards - rejected_rewards).cpu() # This is the weighted margin difference (beta * raw)
+        metrics[f"{prefix}rewards/margins_raw_mean"] = margin_raw_mean
+        metrics[f"{prefix}rewards/margins_raw_std"]  = margin_raw_std
         metrics[f"{prefix}rewards/chosen"] = chosen_rewards.cpu()
         metrics[f"{prefix}rewards/rejected"] = rejected_rewards.cpu()
         metrics[f"{prefix}logps/margins"] = (policy_chosen_logps - policy_rejected_logps).detach().cpu()

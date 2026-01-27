@@ -36,6 +36,8 @@ class ScriptArguments:
     num_proc: Optional[int] = field(default=4, metadata={"help": "num_proc for dataset.map"})
     generate_during_eval: Optional[bool] = field(default=True, metadata={"help": "whether to generate during evaluation"})
 
+    margin_beta: Optional[float] = field(default=None, metadata={"help": "explicit beta for margin reward (defaults to beta if None)"})
+
     training_args: TrainingArguments = field(
         default_factory=lambda: TrainingArguments(
             output_dir="./output/dev/modpo",
@@ -164,10 +166,14 @@ trainer = MODPOTrainer(
 if Accelerator().is_local_main_process:
     trainer.model.print_trainable_parameters()
 
-# NOTE: UltraFeedback and BeaverTails both use positive rewards for both dimensions.
-# The margin reward should use positive beta (same as BeaverTails) to maximize the
-# margin objective. Previous negative beta was incorrectly inverting the objective.
-margin_beta = script_args.beta
+# NOTE: We now allow explicit control of the margin beta.
+# If margin_beta is not provided, we default to script_args.beta (Positive) to match the previous "fix" behavior.
+if script_args.margin_beta is not None:
+    margin_beta = script_args.margin_beta
+    print_local_main(f"Using EXPLICIT margin_beta: {margin_beta}")
+else:
+    margin_beta = script_args.beta
+    print_local_main(f"Using DEFAULT margin_beta (same as beta): {margin_beta}")
 
 trainer.set_wrapped_margin_reward_model_list(
     RewardWrapperList([
