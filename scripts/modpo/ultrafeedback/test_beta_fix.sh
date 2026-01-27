@@ -33,7 +33,7 @@ accelerate launch $PATCHED_SCRIPT \
     --margin_reward_model_name $OUTPUT_ROOT/rm_honesty/best_checkpoint \
     --dataset_name OpenBMB/UltraFeedback-helpfulness \
     --w 0.0 \
-    --sanity_check \
+    --sanity_check True \
     --training_args.output_dir $TEST_DIR/modpo_w0.0_posbeta \
     --training_args.run_name test_posbeta_w0.0 \
     --training_args.num_train_epochs 1 \
