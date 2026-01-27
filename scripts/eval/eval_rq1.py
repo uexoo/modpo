@@ -18,10 +18,12 @@ from llm_judge import load_generations, evaluate_pairwise, wilson_confidence_int
 
 def find_generation_files(eval_dir: Path, model_name: str) -> List[Path]:
     """Find all JSONL generation files for a model."""
-    gen_dir = eval_dir / model_name / "gen"
-    if not gen_dir.exists():
-        return []
-    return list(gen_dir.glob("*.jsonl"))
+    # Try 'generations' first (new structure), then 'gen' (old structure)
+    for subdir in ["generations", "gen"]:
+        gen_dir = eval_dir / model_name / subdir
+        if gen_dir.exists():
+            return list(gen_dir.glob("*.jsonl"))
+    return []
 
 
 def aggregate_generations(files: List[Path]) -> list[dict]:
@@ -54,9 +56,11 @@ def main():
     client = OpenAI(api_key=api_key)
     
     # Load SFT baseline generations
-    sft_files = find_generation_files(eval_dir, "sft_baseline")
-    if not sft_files:
-        sft_files = find_generation_files(eval_dir, "sft")
+    sft_files = None
+    for sft_name in ["sft_baseline", "sft", "sft_helpfulness"]:
+        sft_files = find_generation_files(eval_dir, sft_name)
+        if sft_files:
+            break
     if not sft_files:
         raise ValueError(f"No SFT baseline generations found in {eval_dir}")
     sft_gens = aggregate_generations(sft_files)
