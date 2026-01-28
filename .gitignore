@@ -137,3 +137,4 @@ output*/
 tmp/
 dataset/
 wandb/
+DECISION_LOG.md
