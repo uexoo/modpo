@@ -60,6 +60,7 @@ for W in 0.1 0.5 1.0; do
         --training_args.learning_rate 5e-4 \
         --training_args.report_to wandb \
         --training_args.logging_steps 1 \
+        --training_args.gradient_checkpointing \
         --training_args.save_strategy "steps" \
         --training_args.save_steps 200 \
         --training_args.save_total_limit 1
