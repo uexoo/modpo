@@ -54,7 +54,7 @@ for W in 0.1 0.5 1.0; do
         --training_args.output_dir $OUTPUT_DIR \
         --training_args.run_name $RUN_NAME \
         --training_args.num_train_epochs 1 \
-        --training_args.max_steps 200 \
+        # --training_args.max_steps 200 \
         --training_args.per_device_train_batch_size 1 \
         --training_args.gradient_accumulation_steps 8 \
         --training_args.learning_rate 1e-4 \
