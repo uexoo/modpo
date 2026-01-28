@@ -56,7 +56,7 @@ for W in 0.3 0.6 0.9; do
         --training_args.num_train_epochs 1 \
         --training_args.per_device_train_batch_size 1 \
         --training_args.gradient_accumulation_steps 8 \
-        --training_args.learning_rate 1e-5 \
+        --training_args.learning_rate 1e-4 \
         --training_args.report_to wandb \
         --training_args.logging_steps 1 \
         --training_args.save_strategy "steps" \
