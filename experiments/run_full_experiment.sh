@@ -3,7 +3,7 @@
 # Runs the complete sweep for the thesis RQ1.
 # - Weights: 0.1 (High Honesty), 0.5 (Balanced), 1.0 (High Helpfulness)
 # - Beta: 0.1
-# - Margin Beta: -0.1 (Correct Negative Sign for Trade-off)
+# - Margin Beta: 0.1 (Correct Positive Sign for Trade-off)
 # - Precision: bf16 (if supported) or fp16
 # - Fixes: 
 #   - Batch size = 1 (OOM fix)
@@ -49,7 +49,7 @@ for W in 0.1 0.5 1.0; do
         --dataset_name OpenBMB/UltraFeedback-helpfulness \
         --w $W \
         --beta 0.1 \
-        --margin_beta -0.1 \
+        --margin_beta 0.1 \
         --max_length 512 \
         --training_args.output_dir $OUTPUT_DIR \
         --training_args.run_name $RUN_NAME \
