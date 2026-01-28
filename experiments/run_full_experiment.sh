@@ -57,7 +57,7 @@ for W in 0.1 0.5 1.0; do
         # --training_args.max_steps 200 \
         --training_args.per_device_train_batch_size 1 \
         --training_args.gradient_accumulation_steps 16 \
-        --training_args.learning_rate 5e-5 \
+        --training_args.learning_rate 5e-4 \
         --training_args.report_to wandb \
         --training_args.logging_steps 1 \
         --training_args.save_strategy "steps" \
