@@ -27,7 +27,7 @@ echo "Log File: full_experiment.log"
 echo "----------------------------------------"
 
 # Loop through weights
-for W in 0.1 0.5 1.0; do
+for W in 0.3 0.6 0.9; do
     OUTPUT_DIR="$OUTPUT_ROOT/modpo_w${W}"
     RUN_NAME="modpo_uf_w${W}_final"
     
