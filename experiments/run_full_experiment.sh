@@ -66,9 +66,9 @@ for W in 0.8 0.6 0.4 0.2; do
         --training_args.save_strategy steps \
         --training_args.save_steps 0.25 \
         --training_args.save_total_limit 3 \
-        --training_args.load_best_model_at_end true \
+        --training_args.load_best_model_at_end True \
         --training_args.metric_for_best_model eval_loss \
-        --training_args.greater_is_better false
+        --training_args.greater_is_better False
 
     echo "Finished w=${W}"
     echo "----------------------------------------"
