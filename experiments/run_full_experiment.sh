@@ -1,14 +1,16 @@
 #!/bin/bash
 # Full MODPO Experiment: UltraFeedback Helpfulness vs Honesty
 # Runs the complete sweep for the thesis RQ1.
-# - Weights: 0.1 (High Honesty), 0.5 (Balanced), 1.0 (High Helpfulness)
+# - Weights: 0.8 (High Helpfulness), 0.6, 0.4, 0.2 (High Honesty)
 # - Beta: 0.1
 # - Margin Beta: 0.1 (Correct Positive Sign for Trade-off)
-# - Precision: bf16 (if supported) or fp16
-# - Fixes: 
-#   - Batch size = 1 (OOM fix)
+# - Precision: fp16
+# - Features:
+#   - Evaluation during training (every 25% of steps)
+#   - Best checkpoint saved based on eval_loss
+#   - 3 checkpoints retained for safe resumption
+#   - Batch size = 1 with grad_accum = 8 (OOM fix)
 #   - Max length = 512 (OOM fix)
-#   - NO 100x scaling scaling hack (using w=0.1 as base)
 
 set -e
 
@@ -22,12 +24,12 @@ mkdir -p $OUTPUT_ROOT
 
 echo "=== Starting Full MODPO Experiment Run ==="
 echo "Output: $OUTPUT_ROOT"
-echo "Weights: 0.1, 0.5, 1.0"
-echo "Log File: full_experiment.log"
+echo "Weights: 0.8, 0.6, 0.4, 0.2"
+echo "Features: Eval during training, best checkpoint, resumable"
 echo "----------------------------------------"
 
-# Loop through weights
-for W in 0.3 0.6 0.9; do
+# Loop through weights (high helpfulness to high honesty)
+for W in 0.8 0.6 0.4 0.2; do
     OUTPUT_DIR="$OUTPUT_ROOT/modpo_w${W}"
     RUN_NAME="modpo_uf_w${W}_final"
     
@@ -41,7 +43,7 @@ for W in 0.3 0.6 0.9; do
     
     echo "Launching training..."
     
-    # Run training
+    # Run training with evaluation and robust checkpointing
     accelerate launch --num_processes 1 --mixed_precision fp16 \
         scripts/modpo/ultrafeedback/modpo.py \
         --sft_model_name $SFT_MODEL \
@@ -58,10 +60,15 @@ for W in 0.3 0.6 0.9; do
         --training_args.gradient_accumulation_steps 8 \
         --training_args.learning_rate 1e-4 \
         --training_args.report_to wandb \
-        --training_args.logging_steps 1 \
-        --training_args.save_strategy "steps" \
-        --training_args.save_steps 200 \
-        --training_args.save_total_limit 1
+        --training_args.logging_steps 10 \
+        --training_args.evaluation_strategy steps \
+        --training_args.eval_steps 0.25 \
+        --training_args.save_strategy steps \
+        --training_args.save_steps 0.25 \
+        --training_args.save_total_limit 3 \
+        --training_args.load_best_model_at_end true \
+        --training_args.metric_for_best_model eval_loss \
+        --training_args.greater_is_better false
 
     echo "Finished w=${W}"
     echo "----------------------------------------"
