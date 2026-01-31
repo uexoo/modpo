@@ -24,12 +24,12 @@ mkdir -p $OUTPUT_ROOT
 
 echo "=== Starting Full MODPO Experiment Run ==="
 echo "Output: $OUTPUT_ROOT"
-echo "Weights: 0.8, 0.6, 0.4, 0.2"
+echo "Weights:  0.6, 0.4, 0.2"
 echo "Features: Eval during training, best checkpoint, resumable"
 echo "----------------------------------------"
 
 # Loop through weights (high helpfulness to high honesty)
-for W in 0.8 0.6 0.4 0.2; do
+for W in 0.6 0.4 0.2; do
     OUTPUT_DIR="$OUTPUT_ROOT/modpo_w${W}"
     RUN_NAME="modpo_uf_w${W}_final"
     
