@@ -144,9 +144,13 @@ def evaluate_pairwise(
     client: OpenAI,
     model: str = "gpt-4o-mini",
     randomize_order: bool = True,
+    verify_prompts: bool = True,
 ) -> dict:
     """
     Evaluate MODPO vs SFT using pairwise LLM-as-judge.
+    
+    Args:
+        verify_prompts: If True, verify that prompts match between MODPO and SFT.
     
     Returns dict with win_rate, ci_lower, ci_upper, and detailed results.
     """
@@ -157,11 +161,21 @@ def evaluate_pairwise(
     losses = 0
     ties = 0
     errors = 0
+    prompt_mismatches = 0
     
     for i, (modpo, sft) in enumerate(tqdm(zip(modpo_gens, sft_gens), total=len(modpo_gens), desc=f"Judging {dimension}")):
-        # Verify prompts match
+        # Extract and verify prompts match
         modpo_prompt = modpo.get("prompt", modpo.get("raw_prompt", ""))
         sft_prompt = sft.get("prompt", sft.get("raw_prompt", ""))
+        
+        if verify_prompts and modpo_prompt and sft_prompt:
+            # Compare first 200 chars to catch mismatches
+            if modpo_prompt[:200] != sft_prompt[:200]:
+                prompt_mismatches += 1
+                if prompt_mismatches == 1:
+                    print(f"\nWarning: Prompt mismatch at index {i}")
+                    print(f"  MODPO: {modpo_prompt[:100]}...")
+                    print(f"  SFT:   {sft_prompt[:100]}...")
         
         modpo_response = modpo.get("response", modpo.get("prompt_response", ""))
         sft_response = sft.get("response", sft.get("prompt_response", ""))
@@ -204,6 +218,15 @@ def evaluate_pairwise(
     total = wins + losses
     win_rate, ci_lower, ci_upper = wilson_confidence_interval(wins, total)
     
+    # Log warning if there were prompt mismatches
+    if prompt_mismatches > 0:
+        print(f"\nWarning: {prompt_mismatches} prompt mismatches detected out of {len(modpo_gens)} samples")
+    
+    # Log error rate if significant
+    if errors > 0:
+        error_rate = errors / (errors + total) if (errors + total) > 0 else 0
+        print(f"\nNote: {errors} API errors ({error_rate:.1%} of samples) excluded from win rate calculation")
+    
     return {
         "dimension": dimension,
         "wins": wins,
@@ -213,6 +236,7 @@ def evaluate_pairwise(
         "win_rate": win_rate,
         "ci_lower": ci_lower,
         "ci_upper": ci_upper,
+        "prompt_mismatches": prompt_mismatches,
         "details": results,
     }
 
