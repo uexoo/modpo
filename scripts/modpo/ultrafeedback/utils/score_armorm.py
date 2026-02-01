@@ -84,6 +84,7 @@ def main():
     
     # Batch processing
     for i in tqdm(range(0, len(data), args.batch_size)):
+        print(f"[DEBUG] Processing batch {i // args.batch_size}...")
         batch = data[i:i + args.batch_size]
         
         # Prepare inputs
@@ -107,17 +108,21 @@ def main():
             chat_inputs.append(messages)
             
         # Tokenize
+        print("[DEBUG] Applying chat template...")
         inputs = tokenizer.apply_chat_template(
             chat_inputs, 
             return_tensors="pt", 
             padding=True, 
             truncation=True,
-            max_length=4096 # Safe upper bound
+            max_length=4096 
         ).to(device)
+        print("[DEBUG] Tokenization complete. Input shape:", inputs.shape)
         
         # Inference
+        print("[DEBUG] Running model inference...")
         with torch.no_grad():
             output = model(inputs)
+            print("[DEBUG] Inference complete.")
             # ArmoRM output.rewards is the multi-objective score tensor
             # Shape: (batch_size, num_objectives)
             rewards = output.rewards.cpu().float()
