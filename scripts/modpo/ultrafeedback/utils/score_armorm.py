@@ -50,8 +50,16 @@ def main():
     # 'ultrafeedback-helpfulness' (index 9?)
     # We will locate them dynamically to be safe
     
+    # Try to find attributes on model or config
+    attributes = None
     if hasattr(model, 'score') and hasattr(model.score, 'attributes'):
         attributes = model.score.attributes
+    elif hasattr(model.config, 'attributes'):
+        attributes = model.config.attributes
+    elif hasattr(model, 'attributes'):
+        attributes = model.attributes
+
+    if attributes:
         print(f"Model attributes found: {attributes}")
         try:
             honesty_idx = attributes.index('ultrafeedback-honesty')
@@ -61,8 +69,8 @@ def main():
             print(f"ERROR: Could not find required attributes in model. Available: {attributes}")
             raise e
     else:
-        # Fallback to hardcoded indices from verified documentation if attribute access fails
-        print("WARNING: Could not access model.score.attributes. Using hardcoded indices [Honesty=8, Helpfulness=9]")
+        # Fallback to hardcoded indices from verified documentation
+        print("WARNING: Could not access model attributes. Using hardcoded indices [Honesty=8, Helpfulness=9]")
         honesty_idx = 8
         helpfulness_idx = 9
 
@@ -116,7 +124,6 @@ def main():
             chat_inputs.append(messages)
             
         # Tokenize
-        print("[DEBUG] Applying chat template...")
         inputs = tokenizer.apply_chat_template(
             chat_inputs, 
             return_tensors="pt", 
@@ -124,15 +131,11 @@ def main():
             truncation=True,
             max_length=4096 
         ).to(device)
-        print("[DEBUG] Tokenization complete. Input shape:", inputs.shape)
         
         # Inference
-        print("[DEBUG] Running model inference...")
         with torch.no_grad():
             output = model(inputs)
-            print("[DEBUG] Inference complete.")
             # ArmoRM output.rewards is the multi-objective score tensor
-            # Shape: (batch_size, num_objectives)
             rewards = output.rewards.cpu().float()
         
         # Extract scores
