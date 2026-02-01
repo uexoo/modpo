@@ -29,14 +29,19 @@ def main():
     # Trust remote code is required for ArmoRM
     model = AutoModelForSequenceClassification.from_pretrained(
         args.model_path,
-        device_map=device,
         trust_remote_code=True,
         torch_dtype=torch.bfloat16
     )
+    print(f"[DEBUG] Moving model to {device}...")
+    model.to(device)
+    print(f"[DEBUG] Model moved.")
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, use_fast=True)
     # Fix for Llama 3 tokenizer: set pad_token and padding_side for batch inference
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
+    
+    # Sync pad_token_id in model config
+    model.config.pad_token_id = tokenizer.pad_token_id
     
     # ArmoRM attributes mapping (from model card/attributes)
     # We verify the indices for Honesty and Helpfulness
