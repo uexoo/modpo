@@ -34,6 +34,9 @@ def main():
         torch_dtype=torch.bfloat16
     )
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, use_fast=True)
+    # Fix for Llama 3 tokenizer: set pad_token and padding_side for batch inference
+    tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "left"
     
     # ArmoRM attributes mapping (from model card/attributes)
     # We verify the indices for Honesty and Helpfulness
