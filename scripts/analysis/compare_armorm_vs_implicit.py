@@ -180,55 +180,89 @@ def main():
         responses = []
         batch_armorm = []
         
-        valid_indices = []
-        
         for idx, item in enumerate(batch):
-            # Extract prompt and response (adjust keys as per your jsonl format)
-            # Typically "prompt" and "response" keys exist.
             if "prompt" not in item or "response" not in item:
-                # Try fallback for messages
                 if "messages" in item:
-                    # simplistic assumption
-                    prompts.append(item["messages"][0]["content"])
-                    responses.append(item["messages"][1]["content"])
+                     # Fallback logic
+                     prompts.append(item["messages"][0]["content"])
+                     responses.append(item["messages"][1]["content"])
                 else:
-                    continue # Skip invalid
+                    continue
             else:
                 prompts.append(item["prompt"])
                 responses.append(item["response"])
                 
-            # Extract ArmoRM score
-            if "scores" in item and "armorm_honesty" in item["scores"]:
-                batch_armorm.append(item["scores"]["armorm_honesty"])
-                valid_indices.append(idx)
+            if "scores" in item:
+                # Handle old/new format
+                if "armorm_honesty" in item["scores"]:
+                    batch_armorm.append(item["scores"]["armorm_honesty"])
+                elif "honesty" in item["scores"]: # fallback
+                     batch_armorm.append(item["scores"]["honesty"])
+                else:
+                     batch_armorm.append(0.0) # padding/placeholder if missing
             else:
-                # If armorm score checking fails, we skip correlating this one
-                # But we might still compute implicit for debugging? 
-                # Let's skip to align lists.
-                prompts.pop()
-                responses.pop()
+                batch_armorm.append(0.0)
         
         if not prompts:
             continue
             
         # Compute implicit rewards
-        # 1. Enable adapter
+        # 1. Provide Chat Template formatted inputs
+        # We need to construct messages for apply_chat_template
+        
+        full_inputs_ids = []
+        prompt_lens = []
+        
+        for p, r in zip(prompts, responses):
+            # 1. Format full conversation
+            messages = [{"role": "user", "content": p}, {"role": "assistant", "content": r}]
+            # tokenize=True returns list of ints
+            full_ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=False)
+            
+            # 2. Format prompt only to find split point
+            prompt_msgs = [{"role": "user", "content": p}]
+            prompt_ids = tokenizer.apply_chat_template(prompt_msgs, tokenize=True, add_generation_prompt=True)
+            
+            full_inputs_ids.append(torch.tensor(full_ids))
+            prompt_lens.append(len(prompt_ids))
+            
+        # Pad inputs manually since they are lists of tensors of varying length
+        # Or use tokenizer.pad if we can pass lists.. tokenizer usually takes list of strings or list of list of ints.
+        # Let's use tokenizer.pad with "input_ids": [list of ints]
+        
+        # We need to convert list of tensors/lists to padded batch
+        # Let's use torch.nn.utils.rnn.pad_sequence or re-tokenize?
+        # Re-tokenizing is hard because we already have IDs.
+        
+        # Simple padding logic
+        max_len = max(len(ids) for ids in full_inputs_ids)
+        # Cap at 1024 or higher if needed
+        max_len = min(max_len, 2048) # Allow more context
+        
+        padded_input_ids = []
+        attention_masks = []
+        
+        for ids in full_inputs_ids:
+            # Truncate
+            if len(ids) > max_len:
+                ids = ids[:max_len]
+            
+            # Pad (left or right? Causal LM usually left for generation, right for training/scoring works if masked)
+            # We used right padding in previous attempts. Let's stick to Right Padding for scoring.
+            pad_len = max_len - len(ids)
+            padded = torch.cat([ids, torch.full((pad_len,), tokenizer.pad_token_id, dtype=torch.long)])
+            mask = torch.cat([torch.ones(len(ids), dtype=torch.long), torch.zeros(pad_len, dtype=torch.long)])
+            
+            padded_input_ids.append(padded)
+            attention_masks.append(mask)
+            
+        input_ids = torch.stack(padded_input_ids).to(rm_model.device)
+        attention_mask = torch.stack(attention_masks).to(rm_model.device)
+        
+        inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
+        
+        # Enable adapter
         rm_model.set_adapter("honesty_rm")
-        
-        # Note: compute_implicit_rewards_batch expects TWO models usually
-        # Here we have one model `rm_model`.
-        # We need to compute logprobs with adapter, and without.
-        
-        # We can implement a custom batch routine here to avoid passing `rm_model` twice
-        # or refactor the helper.
-        # Let's refactor logic inline here for the "peft toggle" approach.
-        
-        full_texts = [p + r for p, r in zip(prompts, responses)]
-        inputs = tokenizer(full_texts, return_tensors="pt", padding=True, truncation=True, max_length=1024)
-        inputs = {k: v.to(rm_model.device) for k, v in inputs.items()}
-        
-        prompt_inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True, max_length=1024)
-        prompt_lens = prompt_inputs["attention_mask"].sum(dim=1)
         
         with torch.no_grad():
             # A. Wrapped Forward (RM)
@@ -246,12 +280,16 @@ def main():
             
             # C. Aggregate
             for i in range(len(prompts)):
+                # prompt_lens[i] is where response starts
+                # In logits (shifted), index is prompt_lens[i] - 1
                 start_idx = prompt_lens[i] - 1
+                
+                # Valid length: sum of mask - 1
                 valid_len = inputs["attention_mask"][i].sum() - 1
                 
                 if start_idx >= valid_len:
                     implicit_rewards.append(0.0)
-                    armorm_scores.append(batch_armorm[i]) # Keep aligned
+                    armorm_scores.append(batch_armorm[i])
                     continue
 
                 policy_sum = token_log_probs[i, start_idx:valid_len].sum()
