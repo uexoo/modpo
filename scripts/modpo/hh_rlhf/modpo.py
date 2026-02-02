@@ -5,7 +5,8 @@ from typing import Optional
 import torch
 import tyro
 from accelerate import Accelerator
-from peft import LoraConfig
+from peft import LoraConfig, PeftConfig
+from peft.utils import load_peft_weights, set_peft_model_state_dict
 from transformers import AutoModelForCausalLM, AutoTokenizer, TrainingArguments
 
 from src.trainer.modpo_trainer import MODPOTrainer
@@ -98,8 +99,19 @@ print_local_main(script_args.peft_config)
 
 # peft
 model = prepare_model_for_peft(sft_model, peft_config=script_args.peft_config, args=script_args.training_args)
-# load frozon margin reward weights as lora
-model.load_adapter(script_args.margin_reward_model_name, adapter_name="margin_reward")
+# load frozen margin reward weights as lora
+try:
+    model.load_adapter(script_args.margin_reward_model_name, adapter_name="margin_reward")
+except Exception as e:
+    print_local_main(f"load_adapter failed: {e}")
+    print_local_main("Falling back to manual adapter loading...")
+    peft_config_rm = PeftConfig.from_pretrained(script_args.margin_reward_model_name)
+    model.peft_config["margin_reward"] = peft_config_rm
+    if hasattr(model.base_model, "peft_config"):
+        model.base_model.peft_config["margin_reward"] = peft_config_rm
+    model.base_model.inject_adapter(model, "margin_reward")
+    adapters_weights = load_peft_weights(script_args.margin_reward_model_name, device=model.device)
+    set_peft_model_state_dict(model, adapters_weights, adapter_name="margin_reward")
 
 # tokenizer
 tokenizer = AutoTokenizer.from_pretrained(script_args.sft_model_name, trust_remote_code=True)
