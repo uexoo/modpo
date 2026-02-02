@@ -58,16 +58,25 @@ def main():
     attributes_map = None
     source = "Unknown"
     
-    if hasattr(model.config, 'id2label') and model.config.id2label:
-        attributes_map = model.config.id2label
-        source = "model.config.id2label"
-    elif hasattr(model, 'score') and hasattr(model.score, 'attributes'):
+    if hasattr(model, 'score') and hasattr(model.score, 'attributes'):
         attributes_map = {i: attr for i, attr in enumerate(model.score.attributes)}
         source = "model.score.attributes"
     elif hasattr(model.config, 'attributes'):
         attributes_map = {i: attr for i, attr in enumerate(model.config.attributes)}
         source = "model.config.attributes"
+    elif hasattr(model.config, 'id2label') and model.config.id2label:
+        attributes_map = model.config.id2label
+        source = "model.config.id2label"
         
+    # Validation: Check if map contains 'honesty'
+    is_valid = False
+    if attributes_map:
+        # Check values
+        for v in attributes_map.values():
+            if "honesty" in str(v).lower():
+                is_valid = True
+                break
+    
     # Authoritative reference list from RLHFlow/ArmoRM-Llama3-8B-v0.1 documentation
     # https://huggingface.co/RLHFlow/ArmoRM-Llama3-8B-v0.1
     REF_ATTRIBUTES = {
@@ -92,8 +101,10 @@ def main():
         18: 'code-readability'
     }
 
-    if not attributes_map:
-        print(f"WARNING: Could not find embedded attributes in model config.")
+    if not is_valid:
+        if attributes_map:
+            print(f"WARNING: Detected attributes from {source} appear invalid (no 'honesty' found).")
+            print(f"Sample: {list(attributes_map.values())[:5]}")
         print(f"Using authoritative reference list from RLHFlow documentation.")
         attributes_map = REF_ATTRIBUTES
         source = "Documentation (Hardcoded)"
