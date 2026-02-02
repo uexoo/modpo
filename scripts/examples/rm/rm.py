@@ -23,6 +23,7 @@ class ScriptArguments:
     dataset_name: Optional[str] = field(default="Anthropic/hh-rlhf", metadata={"help": "the dataset name"})
     dataset_caching: Optional[bool] = field(default=False, metadata={"help": "used cached dataset"})
     sanity_check: Optional[bool] = field(default=False, metadata={"help": "whether to conduct sanity check"})
+    resume_from_checkpoint: Optional[str] = field(default=None, metadata={"help": "path to checkpoint to resume from"})
 
     max_length: Optional[int] = field(default=1024, metadata={"help": "the maximum sequence length"})
     num_proc: Optional[int] = field(default=4, metadata={"help": "num_proc for dataset.map"})
@@ -120,7 +121,7 @@ trainer = RewardTrainer(
 )
 if Accelerator().is_local_main_process and script_args.peft_config:
     trainer.model.print_trainable_parameters()
-trainer.train()
+trainer.train(resume_from_checkpoint=script_args.resume_from_checkpoint)
 
 save_name = "best_checkpoint" if script_args.training_args.load_best_model_at_end else "final_checkpoint"
 trainer.model.save_pretrained(os.path.join(script_args.training_args.output_dir, save_name))

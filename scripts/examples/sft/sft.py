@@ -29,6 +29,7 @@ class ScriptArguments:
     completion_only: Optional[bool] = field(default=True, metadata={"help": "whether to train only on completion"})
     num_proc: Optional[int] = field(default=4, metadata={"help": "num_proc for dataset.map"})
     generate_during_eval: Optional[bool] = field(default=True, metadata={"help": "whether to generate during evaluation"})
+    resume_from_checkpoint: Optional[str] = field(default=None, metadata={"help": "path to checkpoint to resume from"})
 
     training_args: TrainingArguments = field(
         default_factory=lambda: TrainingArguments(
@@ -122,7 +123,7 @@ trainer = SFTTrainer(
 )
 if Accelerator().is_local_main_process and script_args.peft_config:
     trainer.model.print_trainable_parameters()
-trainer.train()
+trainer.train(resume_from_checkpoint=script_args.resume_from_checkpoint)
 
 save_name = "best_checkpoint" if script_args.training_args.load_best_model_at_end else "final_checkpoint"
 trainer.model.save_pretrained(os.path.join(script_args.training_args.output_dir, save_name))
