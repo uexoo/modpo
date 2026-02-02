@@ -50,29 +50,90 @@ def main():
     # 'ultrafeedback-helpfulness' (index 9?)
     # We will locate them dynamically to be safe
     
-    # Try to find attributes on model or config
-    attributes = None
-    if hasattr(model, 'score') and hasattr(model.score, 'attributes'):
-        attributes = model.score.attributes
+    # Try to find attributes mapping
+    # 1. Check model.config.id2label (Standard for SequenceClassification)
+    # 2. Check model.score.attributes (Custom ArmoRM)
+    # 3. Check model.config.attributes (Custom ArmoRM)
+    
+    attributes_map = None
+    source = "Unknown"
+    
+    if hasattr(model.config, 'id2label') and model.config.id2label:
+        attributes_map = model.config.id2label
+        source = "model.config.id2label"
+    elif hasattr(model, 'score') and hasattr(model.score, 'attributes'):
+        attributes_map = {i: attr for i, attr in enumerate(model.score.attributes)}
+        source = "model.score.attributes"
     elif hasattr(model.config, 'attributes'):
-        attributes = model.config.attributes
-    elif hasattr(model, 'attributes'):
-        attributes = model.attributes
+        attributes_map = {i: attr for i, attr in enumerate(model.config.attributes)}
+        source = "model.config.attributes"
+        
+    # Authoritative reference list from RLHFlow/ArmoRM-Llama3-8B-v0.1 documentation
+    # https://huggingface.co/RLHFlow/ArmoRM-Llama3-8B-v0.1
+    REF_ATTRIBUTES = {
+        0: 'helpsteer-helpfulness',
+        1: 'helpsteer-correctness',
+        2: 'helpsteer-coherence',
+        3: 'helpsteer-complexity',
+        4: 'helpsteer-verbosity',
+        5: 'ultrafeedback-overall_score',
+        6: 'ultrafeedback-instruction_following',
+        7: 'ultrafeedback-truthfulness',
+        8: 'ultrafeedback-honesty',
+        9: 'ultrafeedback-helpfulness',
+        10: 'beavertails-is_safe',
+        11: 'prometheus-score',
+        12: 'argilla-overall_quality',
+        13: 'argilla-judge_lm',
+        14: 'code-complexity',
+        15: 'code-style',
+        16: 'code-explanation',
+        17: 'code-instruction-following',
+        18: 'code-readability'
+    }
 
-    if attributes:
-        print(f"Model attributes found: {attributes}")
+    if not attributes_map:
+        print(f"WARNING: Could not find embedded attributes in model config.")
+        print(f"Using authoritative reference list from RLHFlow documentation.")
+        attributes_map = REF_ATTRIBUTES
+        source = "Documentation (Hardcoded)"
+
+    print(f"\n{'='*40}")
+    print(f"ATTRIBUTE MAPPING (Source: {source})")
+    print(f"{'='*40}")
+    
+    # Print all attributes
+    for idx in sorted(attributes_map.keys()):
         try:
-            honesty_idx = attributes.index('ultrafeedback-honesty')
-            helpfulness_idx = attributes.index('ultrafeedback-helpfulness')
-            print(f"Found indices -> Honesty: {honesty_idx}, Helpfulness: {helpfulness_idx}")
-        except ValueError as e:
-            print(f"ERROR: Could not find required attributes in model. Available: {attributes}")
-            raise e
+            i = int(idx)
+            attr_name = attributes_map[idx]
+            print(f"  [{i}] {attr_name}")
+        except:
+             pass 
+
+    # Find indices
+    honesty_idx = -1
+    helpfulness_idx = -1
+    
+    # Invert for searching
+    val2id = {str(v): k for k, v in attributes_map.items()}
+    
+    # Search logic
+    if 'ultrafeedback-honesty' in val2id:
+        honesty_idx = int(val2id['ultrafeedback-honesty'])
+    if 'ultrafeedback-helpfulness' in val2id:
+        helpfulness_idx = int(val2id['ultrafeedback-helpfulness'])
+        
+    print(f"{'='*40}")
+    if honesty_idx != -1 and helpfulness_idx != -1:
+         print(f"✅ Indices Resolved:")
+         print(f"   Shape: (Batch, 19)")
+         print(f"   Honesty Index:     {honesty_idx} ('ultrafeedback-honesty')")
+         print(f"   Helpfulness Index: {helpfulness_idx} ('ultrafeedback-helpfulness')")
     else:
-        # Fallback to hardcoded indices from verified documentation
-        print("WARNING: Could not access model attributes. Using hardcoded indices [Honesty=8, Helpfulness=9]")
-        honesty_idx = 8
-        helpfulness_idx = 9
+         print(f"❌ Failed to resolve one or both indices.")
+         raise ValueError("Could not decisively find required labels.")
+    print(f"{'='*40}\n")
 
     # Setup directories
     os.makedirs(args.output_dir, exist_ok=True)
@@ -140,15 +201,24 @@ def main():
         
         # Extract scores
         for j, item in enumerate(batch):
-            honesty_score = rewards[j, honesty_idx].item()
-            helpfulness_score = rewards[j, helpfulness_idx].item()
-            
             result_item = item.copy()
             if "scores" not in result_item:
                 result_item["scores"] = {}
+                
+            # Extract ALL attributes
+            # We iterate over the verified attributes_map
+            for attr_idx, attr_name in attributes_map.items():
+                # Convert index to int just in case
+                idx = int(attr_idx)
+                if idx < rewards.shape[1]:
+                    score_val = rewards[j, idx].item()
+                    # Clean attribute name for json key (remove prefix if desired? keeping full for now)
+                    key_name = f"armorm_{attr_name}"
+                    result_item["scores"][key_name] = score_val
             
-            result_item["scores"]["armorm_honesty"] = honesty_score
-            result_item["scores"]["armorm_helpfulness"] = helpfulness_score
+            # Explicitly ensure our main ones are there with the standard names expected by other scripts
+            result_item["scores"]["armorm_honesty"] = rewards[j, honesty_idx].item()
+            result_item["scores"]["armorm_helpfulness"] = rewards[j, helpfulness_idx].item()
             
             results.append(result_item)
 
@@ -159,16 +229,25 @@ def main():
         for item in results:
             f.write(json.dumps(item) + "\n")
             
-    # Calculate and print summary statistics
-    avg_honest = sum(r["scores"]["armorm_honesty"] for r in results) / len(results)
-    avg_helpful = sum(r["scores"]["armorm_helpfulness"] for r in results) / len(results)
+    # Calculate and print summary statistics for ALL attributes
+    print("\n" + "="*60)
+    print(f"SUMMARY RESULTS (N={len(results)})")
+    print(f"{'Attribute':<40} | {'Average':<10}")
+    print("-" * 53)
     
-    print("\n" + "="*30)
-    print(f"SUMMARY RESULTS")
-    print(f"Samples: {len(results)}")
-    print(f"Avg Honesty: {avg_honest:.4f}")
-    print(f"Avg Helpfulness: {avg_helpful:.4f}")
-    print("="*30 + "\n")
+    # Calculate averages
+    # We use the attributes_map to ensure data order
+    for attr_idx in sorted(attributes_map.keys()):
+        attr_name = attributes_map[attr_idx]
+        key_name = f"armorm_{attr_name}"
+        
+        # safely compute average
+        values = [r["scores"].get(key_name, 0.0) for r in results]
+        if values:
+            avg_val = sum(values) / len(values)
+            print(f"{attr_name:<40} | {avg_val:.4f}")
+            
+    print("="*60 + "\n")
 
 if __name__ == "__main__":
     main()
