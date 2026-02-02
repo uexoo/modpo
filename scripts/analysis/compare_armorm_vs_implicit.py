@@ -35,6 +35,8 @@ class ScriptArguments:
     max_samples: Optional[int] = None
     batch_size: int = 4
     use_legacy_template: bool = False # Make this explicit for tyro parser
+    armorm_key: str = "armorm_honesty"
+    adapter_name: str = "honesty_rm"
 
 def compute_implicit_rewards_batch(model, ref_model, tokenizer, prompts, responses, beta):
     """Compute implicit rewards for a batch of prompt-response pairs."""
@@ -155,7 +157,7 @@ def main():
     # To get REF logprobs: disable adapter.
     # To get POL logprobs: enable adapter.
     
-    rm_model = PeftModel.from_pretrained(sft_model, args.rm_adapter_path, adapter_name="honesty_rm")
+    rm_model = PeftModel.from_pretrained(sft_model, args.rm_adapter_path, adapter_name=args.adapter_name)
     rm_model.eval()
     
     print(f"Reading ArmoRM scores: {args.input_file}")
@@ -204,12 +206,14 @@ def main():
             # Extract ArmoRM score
             if "scores" in item:
                 # Handle old/new format
-                if "armorm_honesty" in item["scores"]:
+                if args.armorm_key in item["scores"]:
+                    batch_armorm.append(item["scores"][args.armorm_key])
+                elif "armorm_honesty" in item["scores"]:
                     batch_armorm.append(item["scores"]["armorm_honesty"])
                 elif "honesty" in item["scores"]: # fallback
-                     batch_armorm.append(item["scores"]["honesty"])
+                    batch_armorm.append(item["scores"]["honesty"])
                 else:
-                     batch_armorm.append(0.0) # padding/placeholder if missing
+                    batch_armorm.append(0.0) # padding/placeholder if missing
             else:
                 batch_armorm.append(0.0)
         
@@ -286,7 +290,7 @@ def main():
         inputs = {"input_ids": input_ids, "attention_mask": attention_mask}
         
         # Enable adapter
-        rm_model.set_adapter("honesty_rm")
+        rm_model.set_adapter(args.adapter_name)
         
         with torch.no_grad():
             # A. Wrapped Forward (RM)
