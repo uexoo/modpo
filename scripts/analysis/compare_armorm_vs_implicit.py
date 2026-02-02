@@ -34,6 +34,7 @@ class ScriptArguments:
     beta: float = 0.1
     max_samples: Optional[int] = None
     batch_size: int = 4
+    use_legacy_template: bool = False # Make this explicit for tyro parser
 
 def compute_implicit_rewards_batch(model, ref_model, tokenizer, prompts, responses, beta):
     """Compute implicit rewards for a batch of prompt-response pairs."""
@@ -175,23 +176,32 @@ def main():
     # Process in batches
     batched_data = [data[i:i + args.batch_size] for i in range(0, len(data), args.batch_size)]
     
+    # Legacy template used in training (found in src/data/raw_data/utils.py)
+    LEGACY_TEMPLATE = "\n\nHuman:\n{raw_prompt}\n\nAssistant:\n"
+    
     for batch in tqdm(batched_data):
         prompts = []
         responses = []
         batch_armorm = []
         
+        valid_indices = []
+        
         for idx, item in enumerate(batch):
+            # Extract prompt and response (adjust keys as per your jsonl format)
+            # Typically "prompt" and "response" keys exist.
             if "prompt" not in item or "response" not in item:
+                # Try fallback for messages
                 if "messages" in item:
-                     # Fallback logic
-                     prompts.append(item["messages"][0]["content"])
-                     responses.append(item["messages"][1]["content"])
+                    # simplistic assumption
+                    prompts.append(item["messages"][0]["content"])
+                    responses.append(item["messages"][1]["content"])
                 else:
-                    continue
+                    continue # Skip invalid
             else:
                 prompts.append(item["prompt"])
                 responses.append(item["response"])
                 
+            # Extract ArmoRM score
             if "scores" in item:
                 # Handle old/new format
                 if "armorm_honesty" in item["scores"]:
@@ -207,24 +217,38 @@ def main():
             continue
             
         # Compute implicit rewards
-        # 1. Provide Chat Template formatted inputs
-        # We need to construct messages for apply_chat_template
-        
         full_inputs_ids = []
         prompt_lens = []
         
         for p, r in zip(prompts, responses):
-            # 1. Format full conversation
-            messages = [{"role": "user", "content": p}, {"role": "assistant", "content": r}]
-            # tokenize=True returns list of ints
-            full_ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=False)
-            
-            # 2. Format prompt only to find split point
-            prompt_msgs = [{"role": "user", "content": p}]
-            prompt_ids = tokenizer.apply_chat_template(prompt_msgs, tokenize=True, add_generation_prompt=True)
-            
-            full_inputs_ids.append(torch.tensor(full_ids))
-            prompt_lens.append(len(prompt_ids))
+             if args.use_legacy_template:
+                 # Replicate training logic exactly
+                 # PROMPT + RESPONSE
+                 # Prompt: "\n\nHuman:\n{p}\n\nAssistant:\n"
+                 # Response: "{r}" (plus EOS likely added by tokenizer call in training func)
+                 
+                 fmt_prompt = LEGACY_TEMPLATE.format(raw_prompt=p)
+                 full_text = fmt_prompt + r
+                 
+                 # Tokenize
+                 full_ids = tokenizer(full_text, add_special_tokens=True)["input_ids"]
+                 prompt_ids = tokenizer(fmt_prompt, add_special_tokens=True)["input_ids"]
+                 
+                 full_inputs_ids.append(torch.tensor(full_ids))
+                 prompt_lens.append(len(prompt_ids))
+                 
+             else:
+                # 1. Format full conversation
+                messages = [{"role": "user", "content": p}, {"role": "assistant", "content": r}]
+                # tokenize=True returns list of ints
+                full_ids = tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=False)
+                
+                # 2. Format prompt only to find split point
+                prompt_msgs = [{"role": "user", "content": p}]
+                prompt_ids = tokenizer.apply_chat_template(prompt_msgs, tokenize=True, add_generation_prompt=True)
+                
+                full_inputs_ids.append(torch.tensor(full_ids))
+                prompt_lens.append(len(prompt_ids))
             
         # Pad inputs manually since they are lists of tensors of varying length
         # Or use tokenizer.pad if we can pass lists.. tokenizer usually takes list of strings or list of list of ints.
@@ -289,7 +313,7 @@ def main():
                 
                 if start_idx >= valid_len:
                     implicit_rewards.append(0.0)
-                    armorm_scores.append(batch_armorm[i])
+                    armorm_scores.append(batch_armorm[i]) # Keep aligned
                     continue
 
                 policy_sum = token_log_probs[i, start_idx:valid_len].sum()
