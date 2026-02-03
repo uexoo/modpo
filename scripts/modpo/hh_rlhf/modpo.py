@@ -82,6 +82,8 @@ script_args = tyro.cli(ScriptArguments)
 set_seeds(script_args.training_args.seed)
 if not script_args.peft:
     script_args.peft_config = None
+if not (0.0 < script_args.w <= 1.0):
+    raise ValueError(f"--w must be in (0, 1] when using w=(w, 1-w). Got w={script_args.w}.")
 
 # base model
 print_local_main("loading model...")

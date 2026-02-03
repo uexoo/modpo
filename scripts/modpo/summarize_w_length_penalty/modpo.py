@@ -31,6 +31,7 @@ class ScriptArguments:
     max_length: Optional[int] = field(default=1024, metadata={"help": "the maximum sequence length"})
     num_proc: Optional[int] = field(default=4, metadata={"help": "num_proc for dataset.map"})
     generate_during_eval: Optional[bool] = field(default=True, metadata={"help": "whether to generate during evaluation"})
+    resume_from_checkpoint: Optional[str] = field(default=None, metadata={"help": "path to checkpoint to resume from"})
 
     training_args: TrainingArguments = field(
         default_factory=lambda: TrainingArguments(
@@ -76,6 +77,8 @@ script_args = tyro.cli(ScriptArguments)
 set_seeds(script_args.training_args.seed)
 if not script_args.peft:
     script_args.peft_config = None
+if script_args.w < 0:
+    raise ValueError(f"--w must be >= 0 when using w=(1, w). Got w={script_args.w}.")
 
 # base model
 print_local_main("loading model...")
@@ -140,7 +143,7 @@ trainer.set_wrapped_margin_reward_model_list(
     w=(1, script_args.w),
     prepare=False,
 )
-trainer.train()
+trainer.train(resume_from_checkpoint=script_args.resume_from_checkpoint)
 
 save_name = "best_checkpoint" if script_args.training_args.load_best_model_at_end else "final_checkpoint"
 trainer.model.save_pretrained(os.path.join(script_args.training_args.output_dir, save_name))

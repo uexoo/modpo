@@ -35,6 +35,7 @@ class ScriptArguments:
     max_length: Optional[int] = field(default=1024, metadata={"help": "the maximum sequence length"})
     num_proc: Optional[int] = field(default=4, metadata={"help": "num_proc for dataset.map"})
     generate_during_eval: Optional[bool] = field(default=True, metadata={"help": "whether to generate during evaluation"})
+    resume_from_checkpoint: Optional[str] = field(default=None, metadata={"help": "path to checkpoint to resume from"})
 
     margin_beta: Optional[float] = field(default=None, metadata={"help": "explicit beta for margin reward (defaults to beta if None)"})
 
@@ -82,6 +83,8 @@ script_args = tyro.cli(ScriptArguments)
 set_seeds(script_args.training_args.seed)
 if not script_args.peft:
     script_args.peft_config = None
+if not (0.0 < script_args.w <= 1.0):
+    raise ValueError(f"--w must be in (0, 1] when using w=(w, 1-w). Got w={script_args.w}.")
 
 # base model
 print_local_main("loading model...")
@@ -166,8 +169,11 @@ trainer = MODPOTrainer(
 if Accelerator().is_local_main_process:
     trainer.model.print_trainable_parameters()
 
-# NOTE: We now allow explicit control of the margin beta.
-# If margin_beta is not provided, we default to script_args.beta (Positive) to match the previous "fix" behavior.
+# NOTE: We allow explicit control of the margin beta.
+# MODPOTrainer subtracts the margin term in `modpo_loss`, so:
+#   - margin_beta > 0 => treat implicit reward as a *cost* (penalize what margin adapter prefers)
+#   - margin_beta < 0 => treat implicit reward as a *reward* (encourage what margin adapter prefers)
+# If margin_beta is not provided, we default to script_args.beta (>0).
 if script_args.margin_beta is not None:
     margin_beta = script_args.margin_beta
     print_local_main(f"Using EXPLICIT margin_beta: {margin_beta}")
@@ -188,7 +194,7 @@ trainer.set_wrapped_margin_reward_model_list(
     w=(script_args.w, 1-script_args.w),
     prepare=False, 
 )
-trainer.train()
+trainer.train(resume_from_checkpoint=script_args.resume_from_checkpoint)
 
 save_name = "best_checkpoint" if script_args.training_args.load_best_model_at_end else "final_checkpoint"
 trainer.model.save_pretrained(os.path.join(script_args.training_args.output_dir, save_name))
