@@ -94,23 +94,27 @@ if __name__ == "__main__":
             truncation=True,
             max_length=max_input_length,
         )
+        input_len_padded = prompt_tokenized["input_ids"].shape[1]
         output_tokenized = model.generate(
             input_ids=prompt_tokenized["input_ids"].cuda(),
             attention_mask=prompt_tokenized["attention_mask"].cuda(),
             max_new_tokens=256,
             do_sample=False,
         )
-        output = tokenizer.batch_decode(output_tokenized, skip_special_tokens=True)
-        for i, sample in enumerate(output):
+        output_full = tokenizer.batch_decode(output_tokenized, skip_special_tokens=True)
+        output_completion = tokenizer.batch_decode(output_tokenized[:, input_len_padded:], skip_special_tokens=True)
+        for i, sample in enumerate(output_full):
             prompt = batch["prompt"][i] if isinstance(batch["prompt"], list) else batch["prompt"]
             raw_prompt = None
             if "raw_prompt" in batch:
                 raw_prompt = batch["raw_prompt"][i] if isinstance(batch["raw_prompt"], list) else batch["raw_prompt"]
+            completion = output_completion[i] if isinstance(output_completion, list) else output_completion
             results.append({
                 'raw_prompt': raw_prompt,
                 'prompt': prompt,
-                'response': sample[len(prompt):] if sample.startswith(prompt) else sample,
-                'prompt_response': sample
+                'response': completion,
+                'prompt_response': sample,
+                'response_had_prompt_prefix_match': sample.startswith(prompt),
             })
 
     dataset = Dataset.from_list(results)
