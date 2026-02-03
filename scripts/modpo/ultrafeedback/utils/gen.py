@@ -103,7 +103,11 @@ if __name__ == "__main__":
         output = tokenizer.batch_decode(output_tokenized, skip_special_tokens=True)
         for i, sample in enumerate(output):
             prompt = batch["prompt"][i] if isinstance(batch["prompt"], list) else batch["prompt"]
+            raw_prompt = None
+            if "raw_prompt" in batch:
+                raw_prompt = batch["raw_prompt"][i] if isinstance(batch["raw_prompt"], list) else batch["raw_prompt"]
             results.append({
+                'raw_prompt': raw_prompt,
                 'prompt': prompt,
                 'response': sample[len(prompt):] if sample.startswith(prompt) else sample,
                 'prompt_response': sample

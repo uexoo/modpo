@@ -106,6 +106,7 @@ if __name__ == "__main__":
         for i, sample in enumerate(output):
             prompt = batch["prompt"][i] if isinstance(batch["prompt"], list) else batch["prompt"]
             results.append({
+                'raw_prompt': batch.get("raw_prompt", [None]*len(output))[i] if isinstance(batch.get("raw_prompt", None), list) else batch.get("raw_prompt", None),
                 'prompt': prompt,
                 'response': sample[len(prompt):] if sample.startswith(prompt) else sample,
                 'prompt_response': sample
