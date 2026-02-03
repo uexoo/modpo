@@ -14,20 +14,35 @@ accelerate launch scripts/examples/sft/sft.py \
     --training_args.output_dir $OUTPUT_ROOT/sft_helpful \
     --training_args.run_name rq1_hh_sft_helpful
 
+# Merge SFT LoRA adapter if needed (downstream scripts expect a full causal LM checkpoint)
+SFT_MODEL="$OUTPUT_ROOT/sft_helpful/best_checkpoint"
+if [ -f "$SFT_MODEL/adapter_config.json" ]; then
+    echo "=== Step 1b: Merging SFT LoRA adapter ==="
+    SFT_MERGED="$OUTPUT_ROOT/sft_helpful/merged_checkpoint"
+    if [ ! -f "$SFT_MERGED/config.json" ]; then
+        PYTHONPATH=. python src/tools/merge_peft_adapter.py \
+            --adapter_model_name "$SFT_MODEL" \
+            --base_model_name "$BASE_MODEL" \
+            --dtype bf16 \
+            --output_name "$SFT_MERGED"
+    fi
+    SFT_MODEL="$SFT_MERGED"
+fi
+
 # 2. Train Margin Reward Model (Harmless)
 echo "=== Step 2: Training Margin Reward Model on HH-RLHF Harmless ==="
 accelerate launch scripts/examples/dpo/dpo.py \
-    --sft_model_name $OUTPUT_ROOT/sft_helpful/best_checkpoint \
+    --sft_model_name $SFT_MODEL \
     --dataset_name Anthropic/hh-rlhf-harmless \
     --training_args.output_dir $OUTPUT_ROOT/rm_harmless \
     --training_args.run_name rq1_hh_rm_harmless
 
 # 3. Train MODPO (Helpful Base + Harmless Margin)
 echo "=== Step 3: Training MODPO models ==="
-for w in 0.0 0.5 1.0; do
+for w in 0.1 0.5 0.9; do
     echo "Training MODPO w=$w..."
     accelerate launch scripts/modpo/hh_rlhf/modpo.py \
-        --sft_model_name $OUTPUT_ROOT/sft_helpful/best_checkpoint \
+        --sft_model_name $SFT_MODEL \
         --margin_reward_model_name $OUTPUT_ROOT/rm_harmless/best_checkpoint \
         --dataset_name Anthropic/hh-rlhf-helpful \
         --w $w \
@@ -41,16 +56,16 @@ echo "=== Step 4: Generating responses ==="
 # SFT baseline
 echo "Generating SFT baseline responses..."
 python scripts/modpo/hh_rlhf/utils/gen.py \
-    --sft_model_name $OUTPUT_ROOT/sft_helpful/best_checkpoint \
+    --sft_model_name $SFT_MODEL \
     --dataset_name Anthropic/hh-rlhf-helpful \
     --output_dir $EVAL_DIR/sft_baseline/gen \
     --eval_size 700
 
 # MODPO models
-for w in 0.0 0.5 1.0; do
+for w in 0.1 0.5 0.9; do
     echo "Generating responses for MODPO w=$w..."
     python scripts/modpo/hh_rlhf/utils/gen.py \
-        --sft_model_name $OUTPUT_ROOT/sft_helpful/best_checkpoint \
+        --sft_model_name $SFT_MODEL \
         --adapter_model_name $OUTPUT_ROOT/modpo_w${w}/best_checkpoint \
         --dataset_name Anthropic/hh-rlhf-helpful \
         --output_dir $EVAL_DIR/modpo_w${w}/gen \
@@ -62,9 +77,8 @@ echo "=== Step 5: Running LLM-as-judge evaluation ==="
 python scripts/eval/eval_rq1.py \
     --eval_dir $EVAL_DIR \
     --dimensions helpfulness harmlessness \
-    --weights 0.0 0.5 1.0 \
+    --weights 0.1 0.5 0.9 \
     --output_csv $EVAL_DIR/win_rates.csv
 
 echo "=== Pipeline complete! ==="
 echo "Results saved to $EVAL_DIR/win_rates.csv"
-

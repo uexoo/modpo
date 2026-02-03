@@ -6,6 +6,9 @@ set -e  # Exit on first error
 # unless configured otherwise.
 export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 
+# Base model used for SFT (needed to merge LoRA adapters, if present)
+BASE_MODEL=${BASE_MODEL:-"PKU-Alignment/alpaca-7b-reproduced"}
+
 OUTPUT_ROOT="./outputs/rq1/ultrafeedback"
 EVAL_DIR="$OUTPUT_ROOT/eval"
 GEN_SCRIPT="scripts/modpo/ultrafeedback/utils/gen.py"
@@ -22,9 +25,24 @@ echo "=== Resuming RQ1 Pipeline from Step 3 ==="
 echo "Using GPU: $CUDA_VISIBLE_DEVICES"
 echo "Output Root: $OUTPUT_ROOT"
 
+# Resolve SFT model path (merge LoRA adapter if needed)
+SFT_MODEL="$OUTPUT_ROOT/sft_helpfulness/best_checkpoint"
+if [ -f "$SFT_MODEL/adapter_config.json" ]; then
+    SFT_MERGED="$OUTPUT_ROOT/sft_helpfulness/merged_checkpoint"
+    if [ ! -f "$SFT_MERGED/config.json" ]; then
+        echo "Merging SFT LoRA adapter -> $SFT_MERGED"
+        python src/tools/merge_peft_adapter.py \
+            --adapter_model_name "$SFT_MODEL" \
+            --base_model_name "$BASE_MODEL" \
+            --dtype bf16 \
+            --output_name "$SFT_MERGED"
+    fi
+    SFT_MODEL="$SFT_MERGED"
+fi
+
 # 3. Train MODPO (Helpfulness vs Honesty)
 echo "=== Step 3: Training MODPO models ==="
-for w in 0.0 0.5 1.0; do
+for w in 0.1 0.5 0.9; do
     echo "----------------------------------------------------------------"
     echo "Training MODPO w=$w..."
     echo "----------------------------------------------------------------"
@@ -37,7 +55,7 @@ for w in 0.0 0.5 1.0; do
     fi
 
     accelerate launch scripts/modpo/ultrafeedback/modpo.py \
-        --sft_model_name $OUTPUT_ROOT/sft_helpfulness/best_checkpoint \
+        --sft_model_name $SFT_MODEL \
         --margin_reward_model_name $OUTPUT_ROOT/rm_honesty/best_checkpoint \
         --dataset_name OpenBMB/UltraFeedback-helpfulness \
         --w $w \
@@ -53,16 +71,16 @@ echo "=== Step 4: Generating responses ==="
 # SFT baseline
 echo "Generating SFT baseline responses..."
 python $GEN_SCRIPT \
-    --sft_model_name $OUTPUT_ROOT/sft_helpfulness/best_checkpoint \
+    --sft_model_name $SFT_MODEL \
     --dataset_name OpenBMB/UltraFeedback-helpfulness \
     --output_dir $EVAL_DIR/sft_baseline/gen \
     --eval_size 700
 
 # MODPO models
-for w in 0.0 0.5 1.0; do
+for w in 0.1 0.5 0.9; do
     echo "Generating responses for MODPO w=$w..."
     python $GEN_SCRIPT \
-        --sft_model_name $OUTPUT_ROOT/sft_helpfulness/best_checkpoint \
+        --sft_model_name $SFT_MODEL \
         --adapter_model_name $OUTPUT_ROOT/modpo_w${w}/best_checkpoint \
         --dataset_name OpenBMB/UltraFeedback-helpfulness \
         --output_dir $EVAL_DIR/modpo_w${w}/gen \
@@ -75,7 +93,7 @@ echo "=== Step 5: Running LLM-as-judge evaluation ==="
 python $EVAL_SCRIPT \
     --eval_dir $EVAL_DIR \
     --dimensions helpfulness honesty \
-    --weights 0.0 0.5 1.0 \
+    --weights 0.1 0.5 0.9 \
     --output_csv $EVAL_DIR/win_rates.csv
 
 echo "=== Pipeline complete! ==="
