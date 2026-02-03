@@ -25,7 +25,7 @@ export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 # Configuration (override via env vars)
 # -----------------------
 
-BASE_MODEL=${BASE_MODEL:-"PKU-Alignment/alpaca-7b-reproduced"}
+BASE_MODEL=${BASE_MODEL:-"meta-llama/Llama-2-7b-hf"}
 OUTPUT_ROOT=${OUTPUT_ROOT:-"./outputs/helpsteer/v2"}
 
 RUN_TAG=${RUN_TAG:-"helpsteer_v2"}
@@ -269,4 +269,3 @@ python scripts/modpo/helpsteer/utils/score_implicit_reward.py \
 
 echo "=== Pipeline complete ==="
 echo "Outputs: ${OUTPUT_ROOT}"
-

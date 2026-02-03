@@ -43,6 +43,9 @@ export PYTHONPATH=. CUDA_VISIBLE_DEVICES=0
 bash scripts/modpo/helpsteer/run_pipeline_resumable.sh
 ```
 
+By default, the pipeline uses `meta-llama/Llama-2-7b-hf` as the base model. This repo is gated on Hugging Face,
+so make sure you have access and are logged in (e.g., `huggingface-cli login`) before running.
+
 The script is designed to be safe to rerun: it will **skip** completed stages and **resume** from the last
 checkpoint when possible.
 
