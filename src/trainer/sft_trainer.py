@@ -237,6 +237,17 @@ class SFTTrainer(Trainer):
                 lambda sample: {k: v[:max_length] for k, v in sample.items()},
                 num_proc=num_proc,
             )
+            # Filter out samples where truncation removed the entire completion (all labels are ignore_index).
+            # This avoids NaN losses from an "empty" loss reduction during eval.
+            label_pad_token_id = getattr(tokenize_map_func, "label_pad_token_id", -100)
+            before = len(dataset)
+            dataset = dataset.filter(
+                lambda x: any(lbl != label_pad_token_id for lbl in x["prompt_response_labels"]),
+                num_proc=num_proc,
+            )
+            after = len(dataset)
+            if after != before:
+                print_local_main(f"Filtered {before - after} / {before} examples with no completion tokens after truncation.")
             return dataset
         if "prompt_response_input_ids" not in train_dataset[0].keys():
             print_local_main("dataset preprocessing...")
