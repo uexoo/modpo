@@ -33,6 +33,7 @@ RUN_TAG=${RUN_TAG:-"helpsteer_v2"}
 MAX_LENGTH=${MAX_LENGTH:-512}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-4}
 EVAL_SIZE=${EVAL_SIZE:-300}
+PRECISION=${PRECISION:-"bf16"}  # bf16|fp16|fp32 (forwarded to training scripts)
 
 # Core objective scaling
 BETA=${BETA:-0.1}
@@ -98,6 +99,7 @@ echo "OUTPUT_ROOT=$OUTPUT_ROOT"
 echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 echo "W_VALUES=$W_VALUES"
 echo "BETA=$BETA MARGIN_BETA=$MARGIN_BETA"
+echo "PRECISION=$PRECISION"
 
 # -----------------------
 # 1) SFT (helpfulness)
@@ -111,6 +113,7 @@ accelerate launch scripts/examples/sft/sft.py \
   --dataset_name "nvidia/HelpSteer-pairwise-helpfulness" \
   --generate-during-eval False \
   --max_length "${MAX_LENGTH}" \
+  --precision "${PRECISION}" \
   --training_args.output_dir "${SFT_OUT}" \
   --training_args.run_name "${RUN_TAG}_sft_helpfulness" \
   --training_args.max_steps "${SFT_MAX_STEPS}" \
@@ -162,6 +165,7 @@ accelerate launch scripts/examples/dpo/dpo.py \
   --beta "${BETA}" \
   --generate-during-eval False \
   --max_length "${MAX_LENGTH}" \
+  --precision "${PRECISION}" \
   --training_args.output_dir "${MARGIN_OUT}" \
   --training_args.run_name "${RUN_TAG}_margin_verbosity_dpo" \
   --training_args.max_steps "${DPO_MAX_STEPS}" \
@@ -207,6 +211,7 @@ for w in ${W_VALUES}; do
     --margin_beta "${MARGIN_BETA}" \
     --generate-during-eval False \
     --max_length "${MAX_LENGTH}" \
+    --precision "${PRECISION}" \
     --training_args.output_dir "${OUT}" \
     --training_args.run_name "${RUN_TAG}_modpo_w${w}" \
     --training_args.max_steps "${MODPO_MAX_STEPS}" \

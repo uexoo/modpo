@@ -40,6 +40,7 @@ From the repo root (server):
 
 ```bash
 export PYTHONPATH=. CUDA_VISIBLE_DEVICES=0
+export PRECISION=bf16  # bf16|fp16|fp32
 bash scripts/modpo/helpsteer/run_pipeline_resumable.sh
 ```
 

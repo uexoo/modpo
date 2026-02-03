@@ -1,6 +1,6 @@
 import os
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Literal
 
 import torch
 import tyro
@@ -13,6 +13,34 @@ from src.data.configs import DATASET_CONFIGS, DEFAULT_PROMPT_TEMPLATE
 from src.utils import print_local_main, disable_progress_bar_non_local_main, param_sharding_enabled, set_seeds
 
 disable_progress_bar_non_local_main()
+
+def _apply_precision(training_args: TrainingArguments, precision: Optional[str]) -> None:
+    if precision is None:
+        return
+    if precision == "bf16":
+        training_args.bf16 = True
+        training_args.fp16 = False
+        return
+    if precision == "fp16":
+        training_args.bf16 = False
+        training_args.fp16 = True
+        return
+    if precision == "fp32":
+        training_args.bf16 = False
+        training_args.fp16 = False
+        return
+    raise ValueError(f"Unknown --precision: {precision!r}. Expected one of: bf16, fp16, fp32.")
+
+
+def _infer_torch_dtype(training_args: TrainingArguments) -> torch.dtype:
+    if getattr(training_args, "bf16", False) and getattr(training_args, "fp16", False):
+        raise ValueError("TrainingArguments has both bf16=True and fp16=True. Choose exactly one precision.")
+    if getattr(training_args, "bf16", False):
+        return torch.bfloat16
+    if getattr(training_args, "fp16", False):
+        return torch.float16
+    return torch.float32
+
 
 @dataclass
 class ScriptArguments:
@@ -30,6 +58,10 @@ class ScriptArguments:
     num_proc: Optional[int] = field(default=4, metadata={"help": "num_proc for dataset.map"})
     generate_during_eval: Optional[bool] = field(default=True, metadata={"help": "whether to generate during evaluation"})
     resume_from_checkpoint: Optional[str] = field(default=None, metadata={"help": "path to checkpoint to resume from"})
+    precision: Optional[Literal["bf16", "fp16", "fp32"]] = field(
+        default=None,
+        metadata={"help": "Force training precision. If set, overrides training_args.{bf16,fp16}."},
+    )
 
     training_args: TrainingArguments = field(
         default_factory=lambda: TrainingArguments(
@@ -75,13 +107,19 @@ script_args = tyro.cli(ScriptArguments)
 set_seeds(script_args.training_args.seed)
 if not script_args.peft:
     script_args.peft_config = None
+_apply_precision(script_args.training_args, script_args.precision)
+torch_dtype = _infer_torch_dtype(script_args.training_args)
+print_local_main(
+    f"Precision: --precision={script_args.precision} fp16={getattr(script_args.training_args,'fp16',None)} "
+    f"bf16={getattr(script_args.training_args,'bf16',None)} torch_dtype={torch_dtype}"
+)
 
 # base model
 print_local_main("loading model...")
 base_model = AutoModelForCausalLM.from_pretrained(
     script_args.base_model_name,
     use_flash_attention_2=script_args.use_flash_attention_2, # flash attn
-    torch_dtype=torch.bfloat16, # necessary for llama2, otherwise will be cast to float32
+    torch_dtype=torch_dtype,
     **({"device_map": {"": Accelerator().local_process_index}} if not param_sharding_enabled() else {}),
 )
 base_model.config.update({
