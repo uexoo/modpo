@@ -36,6 +36,12 @@ def main():
     model.to(device)
     print(f"[DEBUG] Model moved.")
     tokenizer = AutoTokenizer.from_pretrained(args.model_path, use_fast=True)
+    if not hasattr(tokenizer, "apply_chat_template"):
+        raise RuntimeError(
+            "Tokenizer does not support apply_chat_template(). "
+            "ArmoRM scoring requires a newer Transformers version. "
+            "Try running in a dedicated eval environment (see packages/modpo/setup_armorm_env.sh)."
+        )
     # Fix for Llama 3 tokenizer: set pad_token and padding_side for batch inference
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
@@ -181,13 +187,21 @@ def main():
         for item in batch:
             # Handle prompt/response format
             # Typical format in these files: "prompt", "response" (or "messages")
-            prompt = item.get("prompt", "")
+            # Prefer raw_prompt if present (generations may store both raw_prompt and a formatted prompt template).
+            prompt = item.get("raw_prompt", None)
+            if not isinstance(prompt, str) or not prompt.strip():
+                prompt = item.get("prompt", "")
             response = item.get("response", "")
             if not prompt or not response:
                  # Try to extract from messages if available
                  if "messages" in item:
-                     # Assume last message is assistant, second to last is user
-                     pass # Logic depends on exact format, sticking to prompt/response for now
+                     msgs = item.get("messages")
+                     if isinstance(msgs, list) and msgs:
+                         user_msg = next((m for m in msgs if m.get("role") in ("user", "human")), None)
+                         assistant_msg = next((m for m in reversed(msgs) if m.get("role") in ("assistant", "ai")), None)
+                         if user_msg and assistant_msg:
+                             prompt = user_msg.get("content", prompt)
+                             response = assistant_msg.get("content", response)
             
             messages = [
                 {"role": "user", "content": prompt},
@@ -196,17 +210,23 @@ def main():
             chat_inputs.append(messages)
             
         # Tokenize
-        inputs = tokenizer.apply_chat_template(
-            chat_inputs, 
-            return_tensors="pt", 
-            padding=True, 
+        # Use chat template for formatting, then tokenize normally to ensure we have attention_mask for padded batches.
+        chat_texts = [
+            tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+            for messages in chat_inputs
+        ]
+        encodings = tokenizer(
+            chat_texts,
+            return_tensors="pt",
+            padding=True,
             truncation=True,
-            max_length=4096 
-        ).to(device)
+            max_length=4096,
+        )
+        encodings = {k: v.to(device) for k, v in encodings.items()}
         
         # Inference
         with torch.no_grad():
-            output = model(inputs)
+            output = model(**encodings)
             # ArmoRM output.rewards is the multi-objective score tensor
             rewards = output.rewards.cpu().float()
         

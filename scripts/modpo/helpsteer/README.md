@@ -50,10 +50,36 @@ so make sure you have access and are logged in (e.g., `huggingface-cli login`) b
 The script is designed to be safe to rerun: it will **skip** completed stages and **resume** from the last
 checkpoint when possible.
 
+## Paper-style evaluation (recommended)
+
+The training pipeline only scores generations with the **implicit reward adapter** (logp_adapter − logp_base),
+which is useful for debugging but is **not** an independent oracle metric.
+
+For a paper-style evaluation on **HelpSteer native dimensions**, score the generated responses with an external
+RM that exposes the HelpSteer heads (e.g., ArmoRM), and then compare models in the resulting objective space.
+
+After generation is complete:
+
+```bash
+export PYTHONPATH=. CUDA_VISIBLE_DEVICES=0
+export OUTPUT_ROOT=./outputs/helpsteer/v2  # or your run directory
+
+# Optional: quick smoke-test with fewer samples
+export ARMORM_DEBUG_MAX_SAMPLES=64
+
+bash scripts/modpo/helpsteer/run_armorm_eval.sh
+```
+
+Note: ArmoRM often requires a newer Transformers/Accelerate stack than this repo’s pinned training deps; keep
+evaluation in a dedicated environment if needed (see `packages/modpo/setup_armorm_env.sh`).
+
 ## Files
 
 - `scripts/modpo/helpsteer/run_pipeline_resumable.sh`: end-to-end resumable pipeline
+- `scripts/modpo/helpsteer/run_armorm_eval.sh`: evaluate generations with ArmoRM + print HelpSteer-head summary
 - `scripts/modpo/helpsteer/utils/check_margin_adapter.py`: sanity-checks that the DPO margin adapter prefers
   chosen over rejected on its training dimension
 - `scripts/modpo/helpsteer/utils/score_implicit_reward.py`: scores generations with the implicit reward adapter
   and prints summary stats
+- `scripts/modpo/helpsteer/utils/validate_eval_set.py`: verifies that multiple generation dirs share the same prompt set
+- `scripts/modpo/helpsteer/utils/summarize_armorm_helpsteer.py`: prints a compact table for ArmoRM HelpSteer heads
