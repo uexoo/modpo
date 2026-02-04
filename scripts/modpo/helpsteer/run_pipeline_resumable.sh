@@ -31,6 +31,7 @@ OUTPUT_ROOT=${OUTPUT_ROOT:-"./outputs/helpsteer/v2"}
 RUN_TAG=${RUN_TAG:-"helpsteer_v2"}
 
 MAX_LENGTH=${MAX_LENGTH:-512}
+MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-256}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-4}
 EVAL_SIZE=${EVAL_SIZE:-300}
 PRECISION=${PRECISION:-"bf16"}  # bf16|fp16|fp32 (forwarded to training scripts)
@@ -241,6 +242,7 @@ python scripts/modpo/ultrafeedback/utils/gen.py \
   --dataset_name "nvidia/HelpSteer" \
   --eval_size "${EVAL_SIZE}" \
   --max_length "${MAX_LENGTH}" \
+  --max_new_tokens "${MAX_NEW_TOKENS}" \
   --batch_size "${GEN_BATCH_SIZE}" \
   --output_dir "${EVAL_DIR}/gens_sft" \
   | tee -a "${LOGDIR}/gen_sft.log"
@@ -253,6 +255,7 @@ for w in ${W_VALUES}; do
     --dataset_name "nvidia/HelpSteer" \
     --eval_size "${EVAL_SIZE}" \
     --max_length "${MAX_LENGTH}" \
+    --max_new_tokens "${MAX_NEW_TOKENS}" \
     --batch_size "${GEN_BATCH_SIZE}" \
     --output_dir "${EVAL_DIR}/gens_modpo_w${w}" \
     | tee -a "${LOGDIR}/gen_modpo_w${w}.log"

@@ -32,6 +32,13 @@ class ScriptArguments:
     output_dir: Optional[str] = field(default=None, metadata={"help": "output path for generations"})
     eval_size: Optional[int] = field(default=700, metadata={"help": "number of prompts for generations"})
     max_length: Optional[int] = field(default=512, metadata={"help": "the maximum sequence length"})
+    max_new_tokens: Optional[int] = field(default=256, metadata={"help": "maximum number of new tokens to generate"})
+    max_input_length: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "maximum prompt token length; defaults to max_length - max_new_tokens",
+        },
+    )
     batch_size: Optional[int] = field(default=8)
     rank: Optional[int] = field(default=0)
     world_size: Optional[int] = field(default=1)
@@ -84,7 +91,16 @@ if __name__ == "__main__":
     )
 
     results = []
-    max_input_length = script_args.max_length - 256  # Reserve 256 tokens for generation
+    if script_args.max_input_length is None:
+        max_input_length = int(script_args.max_length) - int(script_args.max_new_tokens)
+    else:
+        max_input_length = int(script_args.max_input_length)
+    if max_input_length <= 0:
+        raise ValueError(
+            f"Invalid max_input_length={max_input_length}. "
+            f"Choose max_length ({script_args.max_length}) and max_new_tokens ({script_args.max_new_tokens}) "
+            "so that max_length - max_new_tokens > 0, or set --max_input_length explicitly."
+        )
     for idx in tqdm.tqdm(range(0, len(eval_dataset), script_args.batch_size)):
         batch = eval_dataset[idx: idx + script_args.batch_size]
         prompt_tokenized = tokenizer(
@@ -98,7 +114,7 @@ if __name__ == "__main__":
         output_tokenized = model.generate(
             input_ids=prompt_tokenized["input_ids"].cuda(),
             attention_mask=prompt_tokenized["attention_mask"].cuda(),
-            max_new_tokens=256,
+            max_new_tokens=int(script_args.max_new_tokens),
             do_sample=False,
         )
         output_full = tokenizer.batch_decode(output_tokenized, skip_special_tokens=True)
