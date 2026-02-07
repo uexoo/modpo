@@ -50,6 +50,43 @@ so make sure you have access and are logged in (e.g., `huggingface-cli login`) b
 The script is designed to be safe to rerun: it will **skip** completed stages and **resume** from the last
 checkpoint when possible.
 
+## ASHA tuning (MODPO-only, fixed `w=0.7`)
+
+Use this when you want to tune shared MODPO hyperparameters first, then freeze them for a paper-style
+multi-weight run.
+
+- Scope: MODPO stage only (reuses existing SFT + margin adapter checkpoints)
+- Fixed weight: `w=0.7`
+- Pruning objective: `eval_rewards/margins` (maximize)
+- Sanity metric also logged: `eval_loss`
+- Tuned params by default: `learning_rate`, `weight_decay`, `warmup_ratio`, `beta`, `margin_beta` (via positive multiplier)
+- Runtime dependency: `optuna` with Journal storage support (`JournalStorage` / `JournalFileBackend`)
+
+Run workers in `tmux` so SSH disconnects do not kill jobs. Launch one worker process per GPU:
+
+```bash
+STUDY=hs_modpo_w07_asha_v1
+OUT=./outputs/helpsteer/asha
+SFT=./outputs/helpsteer/rq1_hs_tradeoff_2026-02-06/sft_helpfulness/merged_checkpoint
+MARGIN=./outputs/helpsteer/rq1_hs_tradeoff_2026-02-06/margin_verbosity_dpo/best_checkpoint
+RUNG_STEPS=300,600,1000
+export PYTHONPATH=.
+
+echo "STUDY=$STUDY"
+echo "OUT=$OUT"
+echo "SFT=$SFT"
+echo "MARGIN=$MARGIN"
+echo "RUNG_STEPS=$RUNG_STEPS"
+
+python scripts/modpo/helpsteer/optuna_asha_modpo.py --study_name "$STUDY" --output_root "$OUT" --rung_steps "$RUNG_STEPS" --sft_model_name "$SFT" --margin_reward_model_name "$MARGIN" --worker_id gpu0 --gpu_id 0 &
+python scripts/modpo/helpsteer/optuna_asha_modpo.py --study_name "$STUDY" --output_root "$OUT" --rung_steps "$RUNG_STEPS" --sft_model_name "$SFT" --margin_reward_model_name "$MARGIN" --worker_id gpu1 --gpu_id 1 &
+python scripts/modpo/helpsteer/optuna_asha_modpo.py --study_name "$STUDY" --output_root "$OUT" --rung_steps "$RUNG_STEPS" --sft_model_name "$SFT" --margin_reward_model_name "$MARGIN" --worker_id gpu2 --gpu_id 2 &
+wait
+python scripts/modpo/helpsteer/optuna_asha_modpo.py --study_name "$STUDY" --output_root "$OUT" --rung_steps "$RUNG_STEPS" --sft_model_name "$SFT" --margin_reward_model_name "$MARGIN" --summarize_only
+```
+
+Default ASHA budget is `24` total trials with rung steps `300,600,1000`.
+
 ## Paper-style evaluation (recommended)
 
 The training pipeline only scores generations with the **implicit reward adapter** (logp_adapter − logp_base),
@@ -83,3 +120,4 @@ evaluation in a dedicated environment if needed (see `packages/modpo/setup_armor
   and prints summary stats
 - `scripts/modpo/helpsteer/utils/validate_eval_set.py`: verifies that multiple generation dirs share the same prompt set
 - `scripts/modpo/helpsteer/utils/summarize_armorm_helpsteer.py`: prints a compact table for ArmoRM HelpSteer heads
+- `scripts/modpo/helpsteer/optuna_asha_modpo.py`: ASHA-style Optuna tuner for MODPO-only hyperparameter search
