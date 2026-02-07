@@ -6,10 +6,70 @@ from dataclasses import dataclass, field
 from typing import Optional
 from tqdm import tqdm
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
-from datasets import Dataset
 
 # Fix for "huggingface_hub.utils._validators. HFValidationError" when offline/remote
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
+
+# Authoritative reference list from RLHFlow/ArmoRM-Llama3-8B-v0.1 documentation
+# https://huggingface.co/RLHFlow/ArmoRM-Llama3-8B-v0.1
+REF_ATTRIBUTES = {
+    0: "helpsteer-helpfulness",
+    1: "helpsteer-correctness",
+    2: "helpsteer-coherence",
+    3: "helpsteer-complexity",
+    4: "helpsteer-verbosity",
+    5: "ultrafeedback-overall_score",
+    6: "ultrafeedback-instruction_following",
+    7: "ultrafeedback-truthfulness",
+    8: "ultrafeedback-honesty",
+    9: "ultrafeedback-helpfulness",
+    10: "beavertails-is_safe",
+    11: "prometheus-score",
+    12: "argilla-overall_quality",
+    13: "argilla-judge_lm",
+    14: "code-complexity",
+    15: "code-style",
+    16: "code-explanation",
+    17: "code-instruction-following",
+    18: "code-readability",
+}
+
+REQUIRED_ATTRS = {
+    "helpsteer-helpfulness",
+    "helpsteer-correctness",
+    "helpsteer-coherence",
+    "helpsteer-complexity",
+    "helpsteer-verbosity",
+    "ultrafeedback-honesty",
+    "ultrafeedback-helpfulness",
+}
+
+
+def _canonicalize_attributes_map(raw_map):
+    out = {}
+    if raw_map is None:
+        return out
+    if isinstance(raw_map, dict):
+        items = raw_map.items()
+    else:
+        items = enumerate(raw_map)
+    for k, v in items:
+        try:
+            idx = int(k)
+        except (TypeError, ValueError):
+            continue
+        out[idx] = str(v)
+    return dict(sorted(out.items()))
+
+
+def _is_valid_attributes_map(attributes_map: dict[int, str]) -> bool:
+    if not attributes_map:
+        return False
+    labels = set(attributes_map.values())
+    if not REQUIRED_ATTRS.issubset(labels):
+        return False
+    # ArmoRM v0.1 should expose at least the known 19 dimensions.
+    return len(attributes_map) >= len(REF_ATTRIBUTES)
 
 @dataclass
 class ScriptArguments:
@@ -49,107 +109,75 @@ def main():
     # Sync pad_token_id in model config
     model.config.pad_token_id = tokenizer.pad_token_id
     
-    # ArmoRM attributes mapping (from model card/attributes)
-    # We verify the indices for Honesty and Helpfulness
-    # Expected: 
-    # 'ultrafeedback-honesty' (index 8?)
-    # 'ultrafeedback-helpfulness' (index 9?)
-    # We will locate them dynamically to be safe
-    
-    # Try to find attributes mapping
-    # 1. Check model.config.id2label (Standard for SequenceClassification)
-    # 2. Check model.score.attributes (Custom ArmoRM)
-    # 3. Check model.config.attributes (Custom ArmoRM)
-    
-    attributes_map = None
-    source = "Unknown"
-    
-    if hasattr(model, 'score') and hasattr(model.score, 'attributes'):
-        attributes_map = {i: attr for i, attr in enumerate(model.score.attributes)}
-        source = "model.score.attributes"
-    elif hasattr(model.config, 'attributes'):
-        attributes_map = {i: attr for i, attr in enumerate(model.config.attributes)}
-        source = "model.config.attributes"
-    elif hasattr(model.config, 'id2label') and model.config.id2label:
-        attributes_map = model.config.id2label
-        source = "model.config.id2label"
-        
-    # Validation: Check if map contains 'honesty'
-    is_valid = False
-    if attributes_map:
-        # Check values
-        for v in attributes_map.values():
-            if "honesty" in str(v).lower():
-                is_valid = True
-                break
-    
-    # Authoritative reference list from RLHFlow/ArmoRM-Llama3-8B-v0.1 documentation
-    # https://huggingface.co/RLHFlow/ArmoRM-Llama3-8B-v0.1
-    REF_ATTRIBUTES = {
-        0: 'helpsteer-helpfulness',
-        1: 'helpsteer-correctness',
-        2: 'helpsteer-coherence',
-        3: 'helpsteer-complexity',
-        4: 'helpsteer-verbosity',
-        5: 'ultrafeedback-overall_score',
-        6: 'ultrafeedback-instruction_following',
-        7: 'ultrafeedback-truthfulness',
-        8: 'ultrafeedback-honesty',
-        9: 'ultrafeedback-helpfulness',
-        10: 'beavertails-is_safe',
-        11: 'prometheus-score',
-        12: 'argilla-overall_quality',
-        13: 'argilla-judge_lm',
-        14: 'code-complexity',
-        15: 'code-style',
-        16: 'code-explanation',
-        17: 'code-instruction-following',
-        18: 'code-readability'
-    }
+    # Resolve ArmoRM attribute labels deterministically and fail if required dims are absent.
+    candidates = []
+    if hasattr(model, "score") and hasattr(model.score, "attributes"):
+        candidates.append(
+            ("model.score.attributes", _canonicalize_attributes_map(model.score.attributes))
+        )
+    if hasattr(model.config, "attributes"):
+        candidates.append(
+            ("model.config.attributes", _canonicalize_attributes_map(model.config.attributes))
+        )
+    if hasattr(model.config, "id2label") and model.config.id2label:
+        candidates.append(
+            ("model.config.id2label", _canonicalize_attributes_map(model.config.id2label))
+        )
 
-    if not is_valid:
-        if attributes_map:
-            print(f"WARNING: Detected attributes from {source} appear invalid (no 'honesty' found).")
-            print(f"Sample: {list(attributes_map.values())[:5]}")
-        print(f"Using authoritative reference list from RLHFlow documentation.")
-        attributes_map = REF_ATTRIBUTES
-        source = "Documentation (Hardcoded)"
+    attributes_map = {}
+    source = "unresolved"
+    for candidate_source, candidate_map in candidates:
+        if _is_valid_attributes_map(candidate_map):
+            attributes_map = candidate_map
+            source = candidate_source
+            break
+        if candidate_map:
+            print(
+                f"WARNING: Ignoring invalid attributes from {candidate_source}. "
+                f"Sample={list(candidate_map.values())[:5]}"
+            )
+
+    if not attributes_map:
+        print(
+            "WARNING: Could not resolve valid attributes from model metadata. "
+            "Falling back to documented RLHFlow mapping."
+        )
+        attributes_map = _canonicalize_attributes_map(REF_ATTRIBUTES)
+        source = "documentation_fallback"
+
+    if not _is_valid_attributes_map(attributes_map):
+        missing = sorted(REQUIRED_ATTRS - set(attributes_map.values()))
+        raise ValueError(
+            "Resolved attributes map is invalid. "
+            f"missing={missing} size={len(attributes_map)} source={source}"
+        )
 
     print(f"\n{'='*40}")
     print(f"ATTRIBUTE MAPPING (Source: {source})")
     print(f"{'='*40}")
     
-    # Print all attributes
+    # Print all attributes (explicit for auditability)
     for idx in sorted(attributes_map.keys()):
-        try:
-            i = int(idx)
-            attr_name = attributes_map[idx]
-            print(f"  [{i}] {attr_name}")
-        except:
-             pass 
+        print(f"  [{idx}] {attributes_map[idx]}")
 
-    # Find indices
-    honesty_idx = -1
-    helpfulness_idx = -1
-    
-    # Invert for searching
-    val2id = {str(v): k for k, v in attributes_map.items()}
-    
-    # Search logic
-    if 'ultrafeedback-honesty' in val2id:
-        honesty_idx = int(val2id['ultrafeedback-honesty'])
-    if 'ultrafeedback-helpfulness' in val2id:
-        helpfulness_idx = int(val2id['ultrafeedback-helpfulness'])
-        
+    val2id = {v: int(k) for k, v in attributes_map.items()}
+    helpsteer_helpfulness_idx = val2id["helpsteer-helpfulness"]
+    helpsteer_correctness_idx = val2id["helpsteer-correctness"]
+    helpsteer_coherence_idx = val2id["helpsteer-coherence"]
+    helpsteer_complexity_idx = val2id["helpsteer-complexity"]
+    helpsteer_verbosity_idx = val2id["helpsteer-verbosity"]
+    ultrafeedback_honesty_idx = val2id["ultrafeedback-honesty"]
+    ultrafeedback_helpfulness_idx = val2id["ultrafeedback-helpfulness"]
+
     print(f"{'='*40}")
-    if honesty_idx != -1 and helpfulness_idx != -1:
-         print(f"✅ Indices Resolved:")
-         print(f"   Shape: (Batch, 19)")
-         print(f"   Honesty Index:     {honesty_idx} ('ultrafeedback-honesty')")
-         print(f"   Helpfulness Index: {helpfulness_idx} ('ultrafeedback-helpfulness')")
-    else:
-         print(f"❌ Failed to resolve one or both indices.")
-         raise ValueError("Could not decisively find required labels.")
+    print("✅ Indices Resolved:")
+    print(f"   HelpSteer helpfulness: {helpsteer_helpfulness_idx}")
+    print(f"   HelpSteer correctness: {helpsteer_correctness_idx}")
+    print(f"   HelpSteer coherence:   {helpsteer_coherence_idx}")
+    print(f"   HelpSteer complexity:  {helpsteer_complexity_idx}")
+    print(f"   HelpSteer verbosity:   {helpsteer_verbosity_idx}")
+    print(f"   UltraFeedback honesty: {ultrafeedback_honesty_idx}")
+    print(f"   UltraFeedback helpf.:  {ultrafeedback_helpfulness_idx}")
     print(f"{'='*40}\n")
 
     # Setup directories
@@ -229,6 +257,21 @@ def main():
             output = model(**encodings)
             # ArmoRM output.rewards is the multi-objective score tensor
             rewards = output.rewards.cpu().float()
+
+        max_required_idx = max(
+            helpsteer_helpfulness_idx,
+            helpsteer_correctness_idx,
+            helpsteer_coherence_idx,
+            helpsteer_complexity_idx,
+            helpsteer_verbosity_idx,
+            ultrafeedback_honesty_idx,
+            ultrafeedback_helpfulness_idx,
+        )
+        if rewards.shape[1] <= max_required_idx:
+            raise ValueError(
+                "Rewards tensor shape is smaller than required indices. "
+                f"shape={tuple(rewards.shape)} max_required_idx={max_required_idx}"
+            )
         
         # Extract scores
         for j, item in enumerate(batch):
@@ -247,9 +290,14 @@ def main():
                     key_name = f"armorm_{attr_name}"
                     result_item["scores"][key_name] = score_val
             
-            # Explicitly ensure our main ones are there with the standard names expected by other scripts
-            result_item["scores"]["armorm_honesty"] = rewards[j, honesty_idx].item()
-            result_item["scores"]["armorm_helpfulness"] = rewards[j, helpfulness_idx].item()
+            # Explicit aliases to avoid ambiguity about which benchmark each key belongs to.
+            result_item["scores"]["armorm_ultrafeedback-honesty"] = rewards[j, ultrafeedback_honesty_idx].item()
+            result_item["scores"]["armorm_ultrafeedback-helpfulness"] = rewards[j, ultrafeedback_helpfulness_idx].item()
+            result_item["scores"]["armorm_helpsteer_helpfulness"] = rewards[j, helpsteer_helpfulness_idx].item()
+
+            # Backward compatibility for old analysis scripts.
+            result_item["scores"]["armorm_honesty"] = rewards[j, ultrafeedback_honesty_idx].item()
+            result_item["scores"]["armorm_helpfulness"] = rewards[j, ultrafeedback_helpfulness_idx].item()
             
             results.append(result_item)
 
