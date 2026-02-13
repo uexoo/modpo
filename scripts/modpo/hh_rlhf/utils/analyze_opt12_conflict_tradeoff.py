@@ -83,9 +83,9 @@ def _extract_prompt_text(obj: dict) -> Optional[str]:
 
 @dataclass
 class ScriptArguments:
+    output_dir: str = field(metadata={"help": "Output directory for analysis artifacts"})
     scores_dir: list[str] = field(default_factory=list, metadata={"help": "Directory with scores_ray2333.jsonl. Repeat."})
     label: Optional[list[str]] = field(default=None, metadata={"help": "Label for each --scores_dir. Repeat."})
-    output_dir: str = field(metadata={"help": "Output directory for analysis artifacts"})
     helpful_key: str = field(default="ray2333_helpful")
     harmless_key: str = field(default="ray2333_harmless")
     bootstrap: int = field(default=1000)
