@@ -407,6 +407,7 @@ def main():
                 "harmless_ci_low",
                 "harmless_ci_high",
             ],
+            extrasaction="ignore",
         )
         writer.writeheader()
         writer.writerows(opt2_stats_rows)
@@ -426,6 +427,7 @@ def main():
                 "both_above_sft",
                 "sft_label",
             ],
+            extrasaction="ignore",
         )
         writer.writeheader()
         writer.writerows(opt2_pareto_rows)
