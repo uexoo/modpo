@@ -1,6 +1,6 @@
 """Generate responses for HH-RLHF evaluation."""
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Literal
 import os
 import math
 
@@ -31,6 +31,10 @@ class ScriptArguments:
 
     output_dir: Optional[str] = field(default=None, metadata={"help": "output path for generations"})
     eval_size: Optional[int] = field(default=700, metadata={"help": "number of prompts for generations"})
+    eval_split: Literal["test", "validation", "train"] = field(
+        default="test",
+        metadata={"help": "dataset split used for generation"},
+    )
     max_length: Optional[int] = field(default=512, metadata={"help": "the maximum sequence length"})
     batch_size: Optional[int] = field(default=8)
     rank: Optional[int] = field(default=0)
@@ -67,10 +71,13 @@ if __name__ == "__main__":
         disable_caching()
     rdp = DATASET_CONFIGS[script_args.dataset_name](prompt_template=script_args.prompt_template)
     
-    # HH-RLHF has a test split
+    # HH-RLHF exposes multiple configs; allow explicit split selection.
     try:
-        eval_dataset = rdp.get_sft_dataset(split="test")
+        eval_dataset = rdp.get_sft_dataset(split=script_args.eval_split)
     except NotImplementedError:
+        if script_args.eval_split != "test":
+            raise
+        # Backward-compatible fallback for datasets without test split.
         eval_dataset = rdp.get_sft_dataset(split="validation")
     
     if len(eval_dataset) > script_args.eval_size:
