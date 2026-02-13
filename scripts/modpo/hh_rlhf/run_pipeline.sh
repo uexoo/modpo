@@ -8,8 +8,10 @@ set -euo pipefail
 # Defaults to a fast sanity profile. Set RUN_PROFILE=full for the full grid run.
 
 export PYTHONPATH=${PYTHONPATH:-.}
+# Mitigate CUDA memory fragmentation on long runs.
+export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-"expandable_segments:True"}
 
-BASE_MODEL=${BASE_MODEL:-"PKU-Alignment/alpaca-7b-reproduced"}
+BASE_MODEL=${BASE_MODEL:-"meta-llama/Llama-2-7b-hf"}
 OUTPUT_ROOT=${OUTPUT_ROOT:-"./outputs/rq2/hh_opt12"}
 RUN_TAG=${RUN_TAG:-"hh_opt12"}
 RUN_PROFILE=${RUN_PROFILE:-"sanity"}  # sanity|full
@@ -48,9 +50,9 @@ else
   MODPO_MAX_STEPS=${MODPO_MAX_STEPS:-1000}
 fi
 
-TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-2}
-EVAL_BATCH_SIZE=${EVAL_BATCH_SIZE:-2}
-GRAD_ACCUM=${GRAD_ACCUM:-4}
+TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-1}
+EVAL_BATCH_SIZE=${EVAL_BATCH_SIZE:-1}
+GRAD_ACCUM=${GRAD_ACCUM:-8}
 SAVE_STEPS=${SAVE_STEPS:-200}
 EVAL_STEPS=${EVAL_STEPS:-200}
 LOGGING_STEPS=${LOGGING_STEPS:-10}
@@ -105,6 +107,10 @@ echo "BETA=$BETA"
 echo "MARGIN_BETA=$MARGIN_BETA"
 echo "MAX_LENGTH=$MAX_LENGTH"
 echo "PRECISION=$PRECISION"
+echo "TRAIN_BATCH_SIZE=$TRAIN_BATCH_SIZE"
+echo "EVAL_BATCH_SIZE=$EVAL_BATCH_SIZE"
+echo "GRAD_ACCUM=$GRAD_ACCUM"
+echo "PYTORCH_CUDA_ALLOC_CONF=$PYTORCH_CUDA_ALLOC_CONF"
 echo "SEED=$SEED"
 echo "WANDB_PROJECT=$WANDB_PROJECT"
 echo "WANDB_RUN_GROUP=$WANDB_RUN_GROUP"
@@ -127,6 +133,7 @@ accelerate launch scripts/examples/sft/sft.py \
   --training_args.per_device_train_batch_size "${TRAIN_BATCH_SIZE}" \
   --training_args.per_device_eval_batch_size "${EVAL_BATCH_SIZE}" \
   --training_args.gradient_accumulation_steps "${GRAD_ACCUM}" \
+  --training_args.gradient_checkpointing \
   --training_args.logging_steps "${LOGGING_STEPS}" \
   --training_args.save_strategy steps \
   --training_args.save_steps "${SAVE_STEPS}" \
@@ -171,6 +178,7 @@ accelerate launch scripts/examples/dpo/dpo.py \
   --training_args.per_device_train_batch_size "${TRAIN_BATCH_SIZE}" \
   --training_args.per_device_eval_batch_size "${EVAL_BATCH_SIZE}" \
   --training_args.gradient_accumulation_steps "${GRAD_ACCUM}" \
+  --training_args.gradient_checkpointing \
   --training_args.logging_steps "${LOGGING_STEPS}" \
   --training_args.save_strategy steps \
   --training_args.save_steps "${SAVE_STEPS}" \
@@ -204,6 +212,7 @@ for w in "${W_GRID[@]}"; do
     --training_args.per_device_train_batch_size "${TRAIN_BATCH_SIZE}" \
     --training_args.per_device_eval_batch_size "${EVAL_BATCH_SIZE}" \
     --training_args.gradient_accumulation_steps "${GRAD_ACCUM}" \
+    --training_args.gradient_checkpointing \
     --training_args.logging_steps "${LOGGING_STEPS}" \
     --training_args.save_strategy steps \
     --training_args.save_steps "${SAVE_STEPS}" \
