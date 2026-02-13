@@ -23,6 +23,7 @@ MARGIN_BETA=${MARGIN_BETA:--0.1}
 
 MAX_LENGTH=${MAX_LENGTH:-1024}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-8}
+NUM_PROC=${NUM_PROC:-4}
 
 if [ -n "${W_VALUES:-}" ]; then
   if [ -z "${W_VALUES}" ]; then
@@ -106,6 +107,7 @@ echo "EVAL_SIZE=$EVAL_SIZE"
 echo "BETA=$BETA"
 echo "MARGIN_BETA=$MARGIN_BETA"
 echo "MAX_LENGTH=$MAX_LENGTH"
+echo "NUM_PROC=$NUM_PROC"
 echo "PRECISION=$PRECISION"
 echo "TRAIN_BATCH_SIZE=$TRAIN_BATCH_SIZE"
 echo "EVAL_BATCH_SIZE=$EVAL_BATCH_SIZE"
@@ -125,6 +127,7 @@ accelerate launch scripts/examples/sft/sft.py \
   --dataset-name "Anthropic/hh-rlhf-helpful" \
   --precision "${PRECISION}" \
   --max-length "${MAX_LENGTH}" \
+  --num-proc "${NUM_PROC}" \
   --generate-during-eval False \
   --training_args.output_dir "${SFT_OUT}" \
   --training_args.run_name "${RUN_TAG}__sft_helpful__seed${SEED}" \
@@ -170,6 +173,7 @@ accelerate launch scripts/examples/dpo/dpo.py \
   --precision "${PRECISION}" \
   --beta "${BETA}" \
   --max-length "${MAX_LENGTH}" \
+  --num-proc "${NUM_PROC}" \
   --generate-during-eval False \
   --training_args.output_dir "${RM_OUT}" \
   --training_args.run_name "${RUN_TAG}__dpo_harmless__seed${SEED}__beta${BETA}" \
@@ -204,6 +208,7 @@ for w in "${W_GRID[@]}"; do
     --margin-beta "${MARGIN_BETA}" \
     --precision "${PRECISION}" \
     --max-length "${MAX_LENGTH}" \
+    --num-proc "${NUM_PROC}" \
     --generate-during-eval False \
     --training_args.output_dir "${OUT}" \
     --training_args.run_name "${RUN_TAG}__modpo__w${w}__seed${SEED}__beta${BETA}__mb${MARGIN_BETA}" \

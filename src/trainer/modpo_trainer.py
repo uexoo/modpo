@@ -21,9 +21,19 @@ class MODPODataMapFunc(DPODataMapFunc):
         in the batch for easy adaptation for customized margin reward models (`src.utils.RewardWrapperBase`).
 
         For example, margin reward models can be an external API than depends on raw texts.
+        Note: some datasets (e.g., HH-RLHF) only expose `prompt`, not `raw_prompt`.
         """
         new_examples = super().__call__(examples)
-        new_examples["raw_prompt"] = examples["raw_prompt"]
+        prompts = examples["prompt"]
+        raw_prompts = examples.get("raw_prompt")
+        if raw_prompts is None:
+            raw_prompts = prompts
+        else:
+            raw_prompts = [
+                rp if isinstance(rp, str) and rp.strip() else p
+                for rp, p in zip(raw_prompts, prompts)
+            ]
+        new_examples["raw_prompt"] = raw_prompts
         new_examples["chosen"] = examples["chosen"]
         new_examples["rejected"] = examples["rejected"]
         return new_examples
