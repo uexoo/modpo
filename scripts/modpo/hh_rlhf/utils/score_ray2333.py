@@ -97,6 +97,8 @@ def main():
     helpful_rm = AutoModelForSequenceClassification.from_pretrained(args.helpful_model_name)
     if helpful_tok.pad_token is None:
         helpful_tok.pad_token = helpful_tok.eos_token
+    helpful_tok.padding_side = "right"
+    helpful_rm.config.pad_token_id = helpful_tok.pad_token_id
     helpful_rm.to(device).eval()
 
     print(f"Loading harmless RM: {args.harmless_model_name}")
@@ -104,6 +106,8 @@ def main():
     harmless_rm = AutoModelForSequenceClassification.from_pretrained(args.harmless_model_name)
     if harmless_tok.pad_token is None:
         harmless_tok.pad_token = harmless_tok.eos_token
+    harmless_tok.padding_side = "right"
+    harmless_rm.config.pad_token_id = harmless_tok.pad_token_id
     harmless_rm.to(device).eval()
 
     rows = []
