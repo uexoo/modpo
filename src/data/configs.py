@@ -1,8 +1,6 @@
 from functools import partial
 from typing import Dict
 
-from src.data.raw_data.helpsteer import HelpSteerRDP
-
 from .raw_data import (
     RawDatasetPreprocessor,
     HhRlhfRDP,
@@ -47,6 +45,25 @@ REAL_DATASET_CONFIGS: Dict[str, RawDatasetPreprocessor] = {
         f"OpenBMB/UltraFeedback-{dimension}": partial(UltraFeedbackRDP, dimension=dimension)
         for dimension in ["overall", "instruction_following", "honesty", "truthfulness", "helpfulness"]
     },
+    # Curated UF variants for stricter pair construction.
+    "OpenBMB/UltraFeedback-helpfulness-clean-gap2": partial(
+        UltraFeedbackRDP,
+        dimension="helpfulness",
+        min_gap=2.0,
+    ),
+    "OpenBMB/UltraFeedback-truthfulness-clean-gap2": partial(
+        UltraFeedbackRDP,
+        dimension="truthfulness",
+        min_gap=2.0,
+    ),
+    "OpenBMB/UltraFeedback-truthfulness-clean-gap2-conflict-with-helpfulness-gap2": partial(
+        UltraFeedbackRDP,
+        dimension="truthfulness",
+        min_gap=2.0,
+        anchor_dimension="helpfulness",
+        min_anchor_gap=2.0,
+        require_disagreement_with_anchor=True,
+    ),
 
     ##### HelpSteer (https://huggingface.co/datasets/nvidia/HelpSteer) #####
     "nvidia/HelpSteer": HelpSteerRDP,

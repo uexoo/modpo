@@ -88,12 +88,18 @@ esac
 BASE_MODEL=${BASE_MODEL:-"PKU-Alignment/alpaca-7b-reproduced"}
 OUTPUT_ROOT=${OUTPUT_ROOT:-"./outputs/ultrafeedback/rq1_truthfulness_${RUN_PROFILE}"}
 RUN_TAG=${RUN_TAG:-"uf_truthfulness_${RUN_PROFILE}"}
+SFT_DATASET_NAME=${SFT_DATASET_NAME:-"OpenBMB/UltraFeedback-helpfulness"}
+MARGIN_DATASET_NAME=${MARGIN_DATASET_NAME:-"OpenBMB/UltraFeedback-truthfulness"}
+MODPO_DATASET_NAME=${MODPO_DATASET_NAME:-"${SFT_DATASET_NAME}"}
+EVAL_DATASET_NAME=${EVAL_DATASET_NAME:-"${SFT_DATASET_NAME}"}
 
 TRAIN_MAX_LENGTH=${TRAIN_MAX_LENGTH:-512}
+TRAIN_SEED=${TRAIN_SEED:-42}
 MAX_LENGTH=${MAX_LENGTH:-${PROFILE_MAX_LENGTH}}
 MAX_INPUT_LENGTH=${MAX_INPUT_LENGTH:-${PROFILE_MAX_INPUT_LENGTH}}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-${PROFILE_MAX_NEW_TOKENS}}
 GEN_BATCH_SIZE=${GEN_BATCH_SIZE:-4}
+GEN_SEED=${GEN_SEED:-0}
 EVAL_SIZE=${EVAL_SIZE:-${PROFILE_EVAL_SIZE}}
 GEN_DO_SAMPLE=${GEN_DO_SAMPLE:-False}
 GEN_TEMPERATURE=${GEN_TEMPERATURE:-1.0}
@@ -133,6 +139,10 @@ SMOKE_BOOTSTRAP_ITERS=${SMOKE_BOOTSTRAP_ITERS:-2000}
 SMOKE_BOOTSTRAP_SEED=${SMOKE_BOOTSTRAP_SEED:-42}
 SMOKE_MAX_CAP_RATE=${SMOKE_MAX_CAP_RATE:-0.20}
 ENFORCE_CAP_RATE_GATE=${ENFORCE_CAP_RATE_GATE:-1}
+RUN_ARMORM_SCORING=${RUN_ARMORM_SCORING:-1}
+RUN_IMPLICIT_SCORING=${RUN_IMPLICIT_SCORING:-1}
+RUN_CAP_DIAGNOSTICS=${RUN_CAP_DIAGNOSTICS:-1}
+RUN_SIGN_SUMMARY=${RUN_SIGN_SUMMARY:-1}
 
 export WANDB_PROJECT=${WANDB_PROJECT:-"modpo-ultrafeedback"}
 export WANDB_RUN_GROUP=${WANDB_RUN_GROUP:-"${RUN_TAG}"}
@@ -170,7 +180,7 @@ if [ "${REQUIRE_EXPLICIT_CRITICALS}" = "1" ]; then
   fi
 fi
 
-for intv in EVAL_SIZE MAX_LENGTH MAX_NEW_TOKENS TRAIN_MAX_LENGTH TRAIN_BATCH_SIZE EVAL_BATCH_SIZE GRAD_ACCUM GEN_BATCH_SIZE DATA_NUM_PROC; do
+for intv in EVAL_SIZE MAX_LENGTH MAX_NEW_TOKENS TRAIN_MAX_LENGTH TRAIN_SEED TRAIN_BATCH_SIZE EVAL_BATCH_SIZE GRAD_ACCUM GEN_BATCH_SIZE GEN_SEED DATA_NUM_PROC; do
   if ! [[ "${!intv}" =~ ^[0-9]+$ ]] || [ "${!intv}" -le 0 ]; then
     echo "[ERROR] ${intv} must be a positive integer. Got: ${!intv}"
     exit 1
@@ -206,6 +216,12 @@ if ! [[ "${ENFORCE_CAP_RATE_GATE}" =~ ^(0|1)$ ]]; then
   echo "[ERROR] ENFORCE_CAP_RATE_GATE must be 0 or 1. Got: ${ENFORCE_CAP_RATE_GATE}"
   exit 1
 fi
+for bitv in RUN_ARMORM_SCORING RUN_IMPLICIT_SCORING RUN_CAP_DIAGNOSTICS RUN_SIGN_SUMMARY; do
+  if ! [[ "${!bitv}" =~ ^(0|1)$ ]]; then
+    echo "[ERROR] ${bitv} must be 0 or 1. Got: ${!bitv}"
+    exit 1
+  fi
+done
 
 read -r -a W_GRID <<< "${W_VALUES}"
 if [ "${#W_GRID[@]}" -eq 0 ]; then
@@ -283,6 +299,7 @@ run_smoke_preflight() {
   echo "=== Smoke preflight: import/version/schema checks ==="
   python - <<'PY'
 import importlib
+import os
 from src.data.configs import DATASET_CONFIGS
 
 mods = ["torch", "transformers", "datasets", "peft", "trl", "accelerate", "tyro"]
@@ -291,11 +308,14 @@ for name in mods:
     m = importlib.import_module(name)
     print(f"  {name}={getattr(m, '__version__', 'unknown')}")
 
-required = [
-    "OpenBMB/UltraFeedback-helpfulness",
-    "OpenBMB/UltraFeedback-truthfulness",
-]
+required = [x for x in os.environ.get("UF_PREFLIGHT_DATASETS", "").split(",") if x]
+if not required:
+    raise RuntimeError("UF_PREFLIGHT_DATASETS is empty.")
+seen = set()
 for key in required:
+    if key in seen:
+        continue
+    seen.add(key)
     if key not in DATASET_CONFIGS:
         raise KeyError(f"Missing dataset key: {key}")
     rdp = DATASET_CONFIGS[key](sanity_check=True, num_proc=1)
@@ -327,17 +347,26 @@ echo "RUN_SIGN_ABLATION=${RUN_SIGN_ABLATION}"
 echo "SIGN_VALUES=${SIGN_VALUES}"
 echo "SIGN_W_VALUES=${SIGN_W_VALUES}"
 echo "TRAIN_MAX_LENGTH=${TRAIN_MAX_LENGTH}"
+echo "TRAIN_SEED=${TRAIN_SEED}"
 echo "MAX_LENGTH=${MAX_LENGTH}"
 echo "MAX_INPUT_LENGTH=${MAX_INPUT_LENGTH}"
 echo "MAX_NEW_TOKENS=${MAX_NEW_TOKENS}"
+echo "GEN_SEED=${GEN_SEED}"
 echo "EVAL_SIZE=${EVAL_SIZE}"
 echo "BETA=${BETA} MARGIN_BETA=${MARGIN_BETA}"
+echo "SFT_DATASET_NAME=${SFT_DATASET_NAME}"
+echo "MARGIN_DATASET_NAME=${MARGIN_DATASET_NAME}"
+echo "MODPO_DATASET_NAME=${MODPO_DATASET_NAME}"
+echo "EVAL_DATASET_NAME=${EVAL_DATASET_NAME}"
 echo "PRECISION=${PRECISION}"
 echo "DATA_NUM_PROC=${DATA_NUM_PROC}"
 echo "GEN_DO_SAMPLE=${GEN_DO_SAMPLE} GEN_TEMPERATURE=${GEN_TEMPERATURE} GEN_TOP_P=${GEN_TOP_P} GEN_REPETITION_PENALTY=${GEN_REPETITION_PENALTY} GEN_NO_REPEAT_NGRAM_SIZE=${GEN_NO_REPEAT_NGRAM_SIZE}"
 echo "ARMORM_MODEL_PATH=${ARMORM_MODEL_PATH} ARMORM_BATCH_SIZE=${ARMORM_BATCH_SIZE}"
 echo "SMOKE_MAX_CAP_RATE=${SMOKE_MAX_CAP_RATE} ENFORCE_CAP_RATE_GATE=${ENFORCE_CAP_RATE_GATE}"
+echo "RUN_ARMORM_SCORING=${RUN_ARMORM_SCORING} RUN_IMPLICIT_SCORING=${RUN_IMPLICIT_SCORING} RUN_CAP_DIAGNOSTICS=${RUN_CAP_DIAGNOSTICS} RUN_SIGN_SUMMARY=${RUN_SIGN_SUMMARY}"
 echo "REQUIRE_EXPLICIT_CRITICALS=${REQUIRE_EXPLICIT_CRITICALS}"
+export UF_PREFLIGHT_DATASETS="${SFT_DATASET_NAME},${MARGIN_DATASET_NAME},${MODPO_DATASET_NAME},${EVAL_DATASET_NAME}"
+echo "UF_PREFLIGHT_DATASETS=${UF_PREFLIGHT_DATASETS}"
 
 if [ "${PREFLIGHT_ONLY}" = "1" ]; then
   run_smoke_preflight
@@ -352,13 +381,14 @@ SFT_OUT="${OUTPUT_ROOT}/sft_helpfulness"
 run_resumable "${SFT_OUT}" "${LOGDIR}/sft_helpfulness.log" \
   accelerate launch scripts/examples/sft/sft.py \
     --base_model_name "${BASE_MODEL}" \
-    --dataset_name "OpenBMB/UltraFeedback-helpfulness" \
+    --dataset_name "${SFT_DATASET_NAME}" \
     --generate-during-eval False \
     --max_length "${TRAIN_MAX_LENGTH}" \
     --num_proc "${DATA_NUM_PROC}" \
     --precision "${PRECISION}" \
     --training_args.output_dir "${SFT_OUT}" \
     --training_args.run_name "${RUN_TAG}_sft_helpfulness" \
+    --training_args.seed "${TRAIN_SEED}" \
     --training_args.max_steps "${SFT_MAX_STEPS}" \
     --training_args.per_device_train_batch_size "${TRAIN_BATCH_SIZE}" \
     --training_args.per_device_eval_batch_size "${EVAL_BATCH_SIZE}" \
@@ -396,7 +426,7 @@ MARGIN_OUT="${OUTPUT_ROOT}/margin_truthfulness_dpo"
 run_resumable "${MARGIN_OUT}" "${LOGDIR}/margin_truthfulness_dpo.log" \
   accelerate launch scripts/examples/dpo/dpo.py \
     --sft_model_name "${SFT_MODEL}" \
-    --dataset_name "OpenBMB/UltraFeedback-truthfulness" \
+    --dataset_name "${MARGIN_DATASET_NAME}" \
     --beta "${BETA}" \
     --generate-during-eval False \
     --max_length "${TRAIN_MAX_LENGTH}" \
@@ -404,6 +434,7 @@ run_resumable "${MARGIN_OUT}" "${LOGDIR}/margin_truthfulness_dpo.log" \
     --precision "${PRECISION}" \
     --training_args.output_dir "${MARGIN_OUT}" \
     --training_args.run_name "${RUN_TAG}_margin_truthfulness_dpo" \
+    --training_args.seed "${TRAIN_SEED}" \
     --training_args.max_steps "${DPO_MAX_STEPS}" \
     --training_args.per_device_train_batch_size "${TRAIN_BATCH_SIZE}" \
     --training_args.per_device_eval_batch_size "${EVAL_BATCH_SIZE}" \
@@ -432,7 +463,7 @@ if [ "${RUN_SIGN_ABLATION}" = "1" ]; then
         accelerate launch scripts/modpo/ultrafeedback/modpo.py \
           --sft_model_name "${SFT_MODEL}" \
           --margin_reward_model_name "${MARGIN_ADAPTER}" \
-          --dataset_name "OpenBMB/UltraFeedback-helpfulness" \
+          --dataset_name "${MODPO_DATASET_NAME}" \
           --w "${w}" \
           --beta "${BETA}" \
           --margin_beta "${sign}" \
@@ -442,6 +473,7 @@ if [ "${RUN_SIGN_ABLATION}" = "1" ]; then
           --precision "${PRECISION}" \
           --training_args.output_dir "${out}" \
           --training_args.run_name "${RUN_TAG}_${label}" \
+          --training_args.seed "${TRAIN_SEED}" \
           --training_args.max_steps "${MODPO_MAX_STEPS}" \
           --training_args.per_device_train_batch_size "${TRAIN_BATCH_SIZE}" \
           --training_args.per_device_eval_batch_size "${EVAL_BATCH_SIZE}" \
@@ -466,7 +498,7 @@ else
       accelerate launch scripts/modpo/ultrafeedback/modpo.py \
         --sft_model_name "${SFT_MODEL}" \
         --margin_reward_model_name "${MARGIN_ADAPTER}" \
-        --dataset_name "OpenBMB/UltraFeedback-helpfulness" \
+        --dataset_name "${MODPO_DATASET_NAME}" \
         --w "${w}" \
         --beta "${BETA}" \
         --margin_beta "${MARGIN_BETA}" \
@@ -476,6 +508,7 @@ else
         --precision "${PRECISION}" \
         --training_args.output_dir "${out}" \
         --training_args.run_name "${RUN_TAG}_${label}" \
+        --training_args.seed "${TRAIN_SEED}" \
         --training_args.max_steps "${MODPO_MAX_STEPS}" \
         --training_args.per_device_train_batch_size "${TRAIN_BATCH_SIZE}" \
         --training_args.per_device_eval_batch_size "${EVAL_BATCH_SIZE}" \
@@ -495,8 +528,9 @@ fi
 # 4) Generate outputs
 EVAL_DIR="${OUTPUT_ROOT}/eval"
 GEN_COMMON_ARGS=(
-  --dataset_name "OpenBMB/UltraFeedback-helpfulness"
+  --dataset_name "${EVAL_DATASET_NAME}"
   --eval_size "${EVAL_SIZE}"
+  --seed "${GEN_SEED}"
   --max_length "${MAX_LENGTH}"
   --max_new_tokens "${MAX_NEW_TOKENS}"
   --batch_size "${GEN_BATCH_SIZE}"
@@ -547,49 +581,59 @@ python scripts/modpo/helpsteer/utils/validate_eval_set.py "${VAL_ARGS[@]}" \
   --write_report "${EVAL_DIR}/eval_set_validation.json" \
   | tee -a "${LOGDIR}/validate_eval_set.log"
 
-# 6) ArmoRM scoring (per model dir)
-mkdir -p "${EVAL_DIR}/scores_armorm"
 ALL_LABELS=(sft "${MODEL_LABELS[@]}")
-for label in "${ALL_LABELS[@]}"; do
-  input_dir="${EVAL_DIR}/gens_${label}"
-  output_dir="${EVAL_DIR}/scores_armorm/${label}"
-  score_args=(
-    --input_dir "${input_dir}"
-    --output_dir "${output_dir}"
-    --model_path "${ARMORM_MODEL_PATH}"
-    --batch_size "${ARMORM_BATCH_SIZE}"
-  )
-  if [ -n "${ARMORM_DEBUG_MAX_SAMPLES}" ]; then
-    score_args+=(--debug_max_samples "${ARMORM_DEBUG_MAX_SAMPLES}")
-  fi
-  python scripts/modpo/ultrafeedback/utils/score_armorm.py "${score_args[@]}" \
-    | tee -a "${LOGDIR}/score_armorm_${label}.log"
-done
+
+# 6) ArmoRM scoring (per model dir)
+if [ "${RUN_ARMORM_SCORING}" = "1" ]; then
+  mkdir -p "${EVAL_DIR}/scores_armorm"
+  for label in "${ALL_LABELS[@]}"; do
+    input_dir="${EVAL_DIR}/gens_${label}"
+    output_dir="${EVAL_DIR}/scores_armorm/${label}"
+    score_args=(
+      --input_dir "${input_dir}"
+      --output_dir "${output_dir}"
+      --model_path "${ARMORM_MODEL_PATH}"
+      --batch_size "${ARMORM_BATCH_SIZE}"
+    )
+    if [ -n "${ARMORM_DEBUG_MAX_SAMPLES}" ]; then
+      score_args+=(--debug_max_samples "${ARMORM_DEBUG_MAX_SAMPLES}")
+    fi
+    python scripts/modpo/ultrafeedback/utils/score_armorm.py "${score_args[@]}" \
+      | tee -a "${LOGDIR}/score_armorm_${label}.log"
+  done
+else
+  echo "[SKIP] RUN_ARMORM_SCORING=0"
+fi
 
 # 7) Implicit reward sanity scoring
-implicit_args=(
-  --sft_model_name "${SFT_MODEL}"
-  --adapter_model_name "${MARGIN_ADAPTER}"
-  --beta "${BETA}"
-  --gens_dir "${EVAL_DIR}/gens_sft" --label sft
-)
-for label in "${MODEL_LABELS[@]}"; do
-  implicit_args+=(--gens_dir "${EVAL_DIR}/gens_${label}" --label "${label}")
-done
-if [ -n "${IMPLICIT_MAX_EXAMPLES}" ]; then
-  implicit_args+=(--max_examples "${IMPLICIT_MAX_EXAMPLES}")
+if [ "${RUN_IMPLICIT_SCORING}" = "1" ]; then
+  implicit_args=(
+    --sft_model_name "${SFT_MODEL}"
+    --adapter_model_name "${MARGIN_ADAPTER}"
+    --beta "${BETA}"
+    --gens_dir "${EVAL_DIR}/gens_sft" --label sft
+  )
+  for label in "${MODEL_LABELS[@]}"; do
+    implicit_args+=(--gens_dir "${EVAL_DIR}/gens_${label}" --label "${label}")
+  done
+  if [ -n "${IMPLICIT_MAX_EXAMPLES}" ]; then
+    implicit_args+=(--max_examples "${IMPLICIT_MAX_EXAMPLES}")
+  fi
+  python scripts/modpo/helpsteer/utils/score_implicit_reward.py "${implicit_args[@]}" \
+    | tee -a "${LOGDIR}/score_implicit_reward.log"
+else
+  echo "[SKIP] RUN_IMPLICIT_SCORING=0"
 fi
-python scripts/modpo/helpsteer/utils/score_implicit_reward.py "${implicit_args[@]}" \
-  | tee -a "${LOGDIR}/score_implicit_reward.log"
 
 # 8) Generation cap diagnostics gate
-UF_DIAG_EVAL_DIR="${EVAL_DIR}" \
-UF_DIAG_LABELS="$(IFS=,; echo "${ALL_LABELS[*]}")" \
-UF_DIAG_SFT_MODEL="${SFT_MODEL}" \
-UF_DIAG_MAX_NEW_TOKENS="${MAX_NEW_TOKENS}" \
-UF_DIAG_CAP_THRESH="${SMOKE_MAX_CAP_RATE}" \
-UF_DIAG_ENFORCE="${ENFORCE_CAP_RATE_GATE}" \
-python - <<'PY'
+if [ "${RUN_CAP_DIAGNOSTICS}" = "1" ]; then
+  UF_DIAG_EVAL_DIR="${EVAL_DIR}" \
+  UF_DIAG_LABELS="$(IFS=,; echo "${ALL_LABELS[*]}")" \
+  UF_DIAG_SFT_MODEL="${SFT_MODEL}" \
+  UF_DIAG_MAX_NEW_TOKENS="${MAX_NEW_TOKENS}" \
+  UF_DIAG_CAP_THRESH="${SMOKE_MAX_CAP_RATE}" \
+  UF_DIAG_ENFORCE="${ENFORCE_CAP_RATE_GATE}" \
+  python - <<'PY'
 import glob
 import json
 import os
@@ -644,9 +688,18 @@ if cap_fail and enforce:
     msg = ", ".join([f"{label}={rate:.4f}" for label, rate in cap_fail])
     raise SystemExit(f"FAILED cap-rate gate (>{cap_thresh}): {msg}")
 PY
+else
+  echo "[SKIP] RUN_CAP_DIAGNOSTICS=0"
+fi
 
 # 9) Pilot sign-ablation verdict
-if [ "${RUN_SIGN_ABLATION}" = "1" ]; then
+if [ "${RUN_SIGN_ABLATION}" = "1" ] && [ "${RUN_SIGN_SUMMARY}" = "1" ]; then
+  if [ "${RUN_ARMORM_SCORING}" != "1" ]; then
+    echo "[WARN] RUN_SIGN_SUMMARY=1 but RUN_ARMORM_SCORING=0; skipping summary."
+    echo "=== Pipeline complete ==="
+    echo "Outputs: ${OUTPUT_ROOT}"
+    exit 0
+  fi
   pos_sign=""
   neg_sign=""
   for sign in "${SIGN_GRID[@]}"; do
@@ -669,6 +722,8 @@ if [ "${RUN_SIGN_ABLATION}" = "1" ]; then
   else
     echo "[WARN] Could not find both a positive and negative sign in SIGN_VALUES; skipping sign verdict."
   fi
+elif [ "${RUN_SIGN_ABLATION}" = "1" ] && [ "${RUN_SIGN_SUMMARY}" != "1" ]; then
+  echo "[SKIP] RUN_SIGN_SUMMARY=0"
 fi
 
 echo "=== Pipeline complete ==="

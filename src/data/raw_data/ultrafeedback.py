@@ -1,11 +1,43 @@
 from dataclasses import dataclass
 from functools import partial
-from typing import Literal, Dict, Optional
+from typing import Dict, Literal, Optional
 
 from datasets import load_dataset
 
 from .utils import RawDatasetPreprocessor
 from src.utils import print_local_main
+
+UF_FINE_DIMS = ("instruction_following", "honesty", "truthfulness", "helpfulness")
+UF_DIMS = UF_FINE_DIMS + ("overall",)
+
+
+def _to_float_or_none(value) -> Optional[float]:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _uf_score_for_dimension(completion: dict, dimension: str) -> Optional[float]:
+    if dimension == "overall":
+        return _to_float_or_none(completion.get("overall_score"))
+    ann = completion.get("annotations", {})
+    dim = ann.get(dimension, {}) if isinstance(ann, dict) else {}
+    rating = dim.get("Rating") if isinstance(dim, dict) else None
+    return _to_float_or_none(rating)
+
+
+def _chosen_id_and_gap(score_0: Optional[float], score_1: Optional[float]) -> tuple[int, float]:
+    if score_0 is None or score_1 is None:
+        return -1, 0.0
+    diff = score_0 - score_1
+    if diff > 0:
+        return 0, abs(diff)
+    if diff < 0:
+        return 1, abs(diff)
+    return -1, 0.0
 
 
 def ultrafeedback_transform_to_sft(batched_sample, prompt_template):
@@ -19,49 +51,32 @@ def ultrafeedback_transform_to_sft(batched_sample, prompt_template):
         for completion in completions:
             new_batched_sample["raw_prompt"].append(instruction)
             new_batched_sample["prompt"].append(prompt_template.format(raw_prompt=instruction))
-            new_batched_sample["response"].append(completion['response'])
+            new_batched_sample["response"].append(completion["response"])
     return new_batched_sample
 
 
 def ultrafeedback_transform_to_preference(batched_sample):
-    def chosen_id(score_0, score_1):
-        if score_0 < score_1:
-            return 1
-        elif score_0 > score_1:
-            return 0
-        else:
-            return -1
-
-    finegrained_dimensions = ("instruction_following", "honesty", "truthfulness", "helpfulness")
-    dimensions = finegrained_dimensions + ("overall",)
-
     new_batched_sample = {
         "prompt": [],
         "response_0": [],
         "response_1": [],
-        **{f"{dimension}_chosen_id": [] for dimension in dimensions}
+        **{f"{dimension}_chosen_id": [] for dimension in UF_DIMS},
+        **{f"{dimension}_gap": [] for dimension in UF_DIMS},
     }
     for instruction, completions in zip(batched_sample["instruction"], batched_sample["completions"]):
         n_responses = len(completions)
 
         for j in range(n_responses):
-            for k in range(j+1, n_responses):
+            for k in range(j + 1, n_responses):
                 new_batched_sample["prompt"].append(instruction)
-                new_batched_sample["response_0"].append(completions[j]['response'])
-                new_batched_sample["response_1"].append(completions[k]['response'])
-                new_batched_sample["overall_chosen_id"].append(
-                    chosen_id(
-                        completions[j]["overall_score"], 
-                        completions[k]["overall_score"]
-                    )
-                )
-                for dimension in finegrained_dimensions:
-                    new_batched_sample[f"{dimension}_chosen_id"].append(
-                        chosen_id(
-                            completions[j]["annotations"][dimension]["Rating"], 
-                            completions[k]["annotations"][dimension]["Rating"]
-                        )
-                    )
+                new_batched_sample["response_0"].append(completions[j]["response"])
+                new_batched_sample["response_1"].append(completions[k]["response"])
+                for dimension in UF_DIMS:
+                    score_0 = _uf_score_for_dimension(completions[j], dimension)
+                    score_1 = _uf_score_for_dimension(completions[k], dimension)
+                    cid, gap = _chosen_id_and_gap(score_0, score_1)
+                    new_batched_sample[f"{dimension}_chosen_id"].append(cid)
+                    new_batched_sample[f"{dimension}_gap"].append(gap)
 
     return new_batched_sample
 
@@ -70,6 +85,12 @@ def ultrafeedback_transform_to_preference(batched_sample):
 class UltraFeedbackRDP(RawDatasetPreprocessor):
     path: Optional[str] = "OpenBMB/UltraFeedback"
     dimension: Optional[Literal["overall", "instruction_following", "honesty", "truthfulness", "helpfulness"]] = None
+    min_gap: float = 1.0
+    anchor_dimension: Optional[
+        Literal["overall", "instruction_following", "honesty", "truthfulness", "helpfulness"]
+    ] = None
+    min_anchor_gap: float = 1.0
+    require_disagreement_with_anchor: bool = False
 
     def _get_raw_dataset(self, split):
         if split == "train":
@@ -85,12 +106,19 @@ class UltraFeedbackRDP(RawDatasetPreprocessor):
         chosen_id = example[f"{self.dimension}_chosen_id"]
         return {
             "raw_prompt": example["prompt"],
-            "prompt":   self.prompt_template.format(raw_prompt=example["prompt"]),
-            "chosen":   example[f"response_{chosen_id}"],
+            "prompt": self.prompt_template.format(raw_prompt=example["prompt"]),
+            "chosen": example[f"response_{chosen_id}"],
             "rejected": example[f"response_{1-chosen_id}"],
         }
 
     def get_preference_dataset(self, split):
+        if not self.dimension:
+            raise ValueError("UltraFeedback preference requires --dimension.")
+        if self.min_gap <= 0:
+            raise ValueError(f"min_gap must be > 0. Got: {self.min_gap}")
+        if self.anchor_dimension and self.min_anchor_gap <= 0:
+            raise ValueError(f"min_anchor_gap must be > 0. Got: {self.min_anchor_gap}")
+
         dataset = self._get_raw_dataset(split)
         if self.sanity_check:
             dataset = dataset.select(range(min(len(dataset), 100)))
@@ -102,9 +130,24 @@ class UltraFeedbackRDP(RawDatasetPreprocessor):
             remove_columns=dataset.column_names,
         )
         print_local_main("filtering preference...")
-        dataset = dataset.filter(lambda x: x[f"{self.dimension}_chosen_id"] != -1)
+        dataset = dataset.filter(
+            lambda x: x[f"{self.dimension}_chosen_id"] != -1 and x[f"{self.dimension}_gap"] >= float(self.min_gap)
+        )
+        if self.anchor_dimension:
+            dataset = dataset.filter(
+                lambda x: x[f"{self.anchor_dimension}_chosen_id"] != -1
+                and x[f"{self.anchor_dimension}_gap"] >= float(self.min_anchor_gap)
+            )
+            if self.require_disagreement_with_anchor:
+                dataset = dataset.filter(
+                    lambda x: x[f"{self.dimension}_chosen_id"] != x[f"{self.anchor_dimension}_chosen_id"]
+                )
         print_local_main("mapping dataset to standard format...")
-        return dataset.map(self._dataset_to_preference_formatter, num_proc=self.num_proc, remove_columns=dataset.column_names)
+        return dataset.map(
+            self._dataset_to_preference_formatter,
+            num_proc=self.num_proc,
+            remove_columns=dataset.column_names,
+        )
 
     def get_sft_dataset(self, split, **kwargs):
         if self.dimension:
