@@ -116,6 +116,7 @@ SIGN_W_VALUES=${SIGN_W_VALUES:-${W_VALUES}}
 TRAIN_BATCH_SIZE=${TRAIN_BATCH_SIZE:-1}
 EVAL_BATCH_SIZE=${EVAL_BATCH_SIZE:-1}
 GRAD_ACCUM=${GRAD_ACCUM:-8}
+DATA_NUM_PROC=${DATA_NUM_PROC:-1}
 SFT_MAX_STEPS=${SFT_MAX_STEPS:-${PROFILE_SFT_STEPS}}
 DPO_MAX_STEPS=${DPO_MAX_STEPS:-${PROFILE_DPO_STEPS}}
 MODPO_MAX_STEPS=${MODPO_MAX_STEPS:-${PROFILE_MODPO_STEPS}}
@@ -169,7 +170,7 @@ if [ "${REQUIRE_EXPLICIT_CRITICALS}" = "1" ]; then
   fi
 fi
 
-for intv in EVAL_SIZE MAX_LENGTH MAX_NEW_TOKENS TRAIN_MAX_LENGTH TRAIN_BATCH_SIZE EVAL_BATCH_SIZE GRAD_ACCUM GEN_BATCH_SIZE; do
+for intv in EVAL_SIZE MAX_LENGTH MAX_NEW_TOKENS TRAIN_MAX_LENGTH TRAIN_BATCH_SIZE EVAL_BATCH_SIZE GRAD_ACCUM GEN_BATCH_SIZE DATA_NUM_PROC; do
   if ! [[ "${!intv}" =~ ^[0-9]+$ ]] || [ "${!intv}" -le 0 ]; then
     echo "[ERROR] ${intv} must be a positive integer. Got: ${!intv}"
     exit 1
@@ -332,6 +333,7 @@ echo "MAX_NEW_TOKENS=${MAX_NEW_TOKENS}"
 echo "EVAL_SIZE=${EVAL_SIZE}"
 echo "BETA=${BETA} MARGIN_BETA=${MARGIN_BETA}"
 echo "PRECISION=${PRECISION}"
+echo "DATA_NUM_PROC=${DATA_NUM_PROC}"
 echo "GEN_DO_SAMPLE=${GEN_DO_SAMPLE} GEN_TEMPERATURE=${GEN_TEMPERATURE} GEN_TOP_P=${GEN_TOP_P} GEN_REPETITION_PENALTY=${GEN_REPETITION_PENALTY} GEN_NO_REPEAT_NGRAM_SIZE=${GEN_NO_REPEAT_NGRAM_SIZE}"
 echo "ARMORM_MODEL_PATH=${ARMORM_MODEL_PATH} ARMORM_BATCH_SIZE=${ARMORM_BATCH_SIZE}"
 echo "SMOKE_MAX_CAP_RATE=${SMOKE_MAX_CAP_RATE} ENFORCE_CAP_RATE_GATE=${ENFORCE_CAP_RATE_GATE}"
@@ -353,6 +355,7 @@ run_resumable "${SFT_OUT}" "${LOGDIR}/sft_helpfulness.log" \
     --dataset_name "OpenBMB/UltraFeedback-helpfulness" \
     --generate-during-eval False \
     --max_length "${TRAIN_MAX_LENGTH}" \
+    --num_proc "${DATA_NUM_PROC}" \
     --precision "${PRECISION}" \
     --training_args.output_dir "${SFT_OUT}" \
     --training_args.run_name "${RUN_TAG}_sft_helpfulness" \
@@ -397,6 +400,7 @@ run_resumable "${MARGIN_OUT}" "${LOGDIR}/margin_truthfulness_dpo.log" \
     --beta "${BETA}" \
     --generate-during-eval False \
     --max_length "${TRAIN_MAX_LENGTH}" \
+    --num_proc "${DATA_NUM_PROC}" \
     --precision "${PRECISION}" \
     --training_args.output_dir "${MARGIN_OUT}" \
     --training_args.run_name "${RUN_TAG}_margin_truthfulness_dpo" \
@@ -434,6 +438,7 @@ if [ "${RUN_SIGN_ABLATION}" = "1" ]; then
           --margin_beta "${sign}" \
           --generate-during-eval False \
           --max_length "${TRAIN_MAX_LENGTH}" \
+          --num_proc "${DATA_NUM_PROC}" \
           --precision "${PRECISION}" \
           --training_args.output_dir "${out}" \
           --training_args.run_name "${RUN_TAG}_${label}" \
@@ -467,6 +472,7 @@ else
         --margin_beta "${MARGIN_BETA}" \
         --generate-during-eval False \
         --max_length "${TRAIN_MAX_LENGTH}" \
+        --num_proc "${DATA_NUM_PROC}" \
         --precision "${PRECISION}" \
         --training_args.output_dir "${out}" \
         --training_args.run_name "${RUN_TAG}_${label}" \
@@ -667,4 +673,3 @@ fi
 
 echo "=== Pipeline complete ==="
 echo "Outputs: ${OUTPUT_ROOT}"
-

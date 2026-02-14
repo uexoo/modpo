@@ -141,6 +141,7 @@ if not script_args.dataset_caching:
 rdp = DATASET_CONFIGS[script_args.dataset_name](
     prompt_template=script_args.prompt_template,
     sanity_check=script_args.sanity_check,
+    num_proc=script_args.num_proc,
 )
 train_dataset = rdp.get_sft_dataset(split="train", chosen_only=script_args.chosen_only)
 eval_dataset  = rdp.get_sft_dataset(split="validation", chosen_only=script_args.chosen_only)
