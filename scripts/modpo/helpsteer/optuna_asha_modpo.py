@@ -348,7 +348,7 @@ def _build_objective(args: argparse.Namespace):
         warmup_ratio = trial.suggest_float("warmup_ratio", args.warmup_ratio_min, args.warmup_ratio_max)
         beta = trial.suggest_categorical("beta", args.beta_values)
         margin_mult = trial.suggest_float("margin_mult", args.margin_mult_min, args.margin_mult_max, log=True)
-        margin_beta = beta * margin_mult
+        margin_beta = args.margin_sign * beta * margin_mult
 
         warmup_steps = max(0, int(round(final_budget * warmup_ratio)))
         trial.set_user_attr("worker_id", args.worker_id)
@@ -527,6 +527,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--beta_values", type=str, default="0.1,0.2,0.5")
     parser.add_argument("--margin_mult_min", type=float, default=0.5)
     parser.add_argument("--margin_mult_max", type=float, default=2.0)
+    parser.add_argument(
+        "--margin_sign",
+        type=float,
+        default=-1.0,
+        help=(
+            "Sign for margin_beta construction: margin_beta = margin_sign * beta * margin_mult. "
+            "Use -1 for HelpSteer verbosity-reduction objective."
+        ),
+    )
     return parser
 
 
@@ -554,6 +563,8 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError("Invalid warmup_ratio bounds.")
     if args.margin_mult_min <= 0 or args.margin_mult_min >= args.margin_mult_max:
         raise ValueError("Invalid margin multiplier bounds.")
+    if args.margin_sign not in (-1.0, 1.0):
+        raise ValueError("--margin_sign must be either -1 or 1.")
     if min(args.beta_values) <= 0:
         raise ValueError("All beta values must be > 0.")
     if args.eval_steps > args.rung_steps[0]:
@@ -599,6 +610,7 @@ def _print_preflight(args: argparse.Namespace) -> None:
     print(f"search.weight_decay=[{args.weight_decay_min},{args.weight_decay_max}]")
     print(f"search.warmup_ratio=[{args.warmup_ratio_min},{args.warmup_ratio_max}]")
     print(f"search.beta_values={args.beta_values}")
+    print(f"search.margin_sign={args.margin_sign}")
     print(f"search.margin_mult=[{args.margin_mult_min},{args.margin_mult_max}]")
     print("============================")
 

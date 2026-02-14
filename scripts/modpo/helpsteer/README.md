@@ -34,13 +34,38 @@ That means:
 The pipeline runs `scripts/modpo/helpsteer/utils/check_margin_adapter.py` after training the margin adapter to
 verify that, on its training dimension, **chosen scores higher than rejected** under the implicit reward.
 
+## Empirical Sign Result (HelpSteer, 2026-02-14)
+
+Controlled A/B runs were executed with identical recipe and opposite sign (`+0.1` vs `-0.1`) at `w=0.2` and `w=0.8`.
+
+- In this HelpSteer pipeline, `MARGIN_BETA=+0.1` increased verbosity signal.
+- In this HelpSteer pipeline, `MARGIN_BETA=-0.1` reduced verbosity signal.
+- Therefore, for the objective "maximize helpfulness, minimize verbosity", use **negative** `MARGIN_BETA`.
+
+The default in `run_pipeline_resumable.sh` is set accordingly to `MARGIN_BETA=-0.1`.
+
 ## Quick start (server)
 
 From the repo root (server):
 
+Goal: launch a PRD-aligned full run with explicit protocol-critical variables.
+
 ```bash
 export PYTHONPATH=. CUDA_VISIBLE_DEVICES=0
 export PRECISION=bf16  # bf16|fp16|fp32
+export OUTPUT_ROOT=./outputs/helpsteer/rq1_hs_tradeoff_2026-02-14_full
+export RUN_TAG=rq1_hs_tradeoff_2026-02-14_full
+export W_VALUES="0.1 0.2 0.4 0.6 0.8 0.9"
+export TRAIN_MAX_LENGTH=512
+export MAX_LENGTH=4096
+export MAX_INPUT_LENGTH=1536
+export MAX_NEW_TOKENS=2560
+export EVAL_SIZE=300
+export BETA=0.1
+export MARGIN_BETA=-0.1
+export REQUIRE_EXPLICIT_CRITICALS=1
+export ENFORCE_NEGATIVE_MARGIN_BETA=1
+export ENFORCE_PRD_W_GRID=1
 bash scripts/modpo/helpsteer/run_pipeline_resumable.sh
 ```
 
@@ -49,6 +74,54 @@ so make sure you have access and are logged in (e.g., `huggingface-cli login`) b
 
 The script is designed to be safe to rerun: it will **skip** completed stages and **resume** from the last
 checkpoint when possible.
+
+## Protocol-critical preflight behavior
+
+- `run_pipeline_resumable.sh` now checks critical vars before launch.
+- With `REQUIRE_EXPLICIT_CRITICALS=1` (default), these vars must be explicitly set by caller:
+  - `OUTPUT_ROOT`
+  - `RUN_TAG`
+  - `W_VALUES`
+  - `MAX_LENGTH`
+  - `MAX_NEW_TOKENS`
+  - `EVAL_SIZE`
+  - `BETA`
+  - `MARGIN_BETA`
+- Optional safety gates:
+  - `ENFORCE_NEGATIVE_MARGIN_BETA=1` fails fast if `MARGIN_BETA >= 0`.
+  - `ENFORCE_PRD_W_GRID=1` fails fast if `W_VALUES` differs from PRD grid.
+- Optional dry run:
+  - `PREFLIGHT_ONLY=1` runs validation + variable echo, then exits before training.
+
+## Training vs generation length controls
+
+- `TRAIN_MAX_LENGTH` controls SFT/DPO/MODPO training sequence length.
+- `MAX_LENGTH`, `MAX_INPUT_LENGTH`, and `MAX_NEW_TOKENS` control generation only.
+- This decoupling avoids accidentally changing training recipe while raising generation budget.
+
+## Generation decode controls (tracked)
+
+`scripts/modpo/ultrafeedback/utils/gen.py` now exposes decode knobs in CLI and logs effective values:
+
+- `--do_sample`
+- `--temperature`
+- `--top_p`
+- `--repetition_penalty`
+- `--no_repeat_ngram_size`
+
+Goal: antidegen-style deterministic decode (recommended pilot before full run freeze).
+
+```bash
+export GEN_DO_SAMPLE=False
+export GEN_REPETITION_PENALTY=1.10
+export GEN_NO_REPEAT_NGRAM_SIZE=4
+```
+
+Practical recommendation for corrected-sign HelpSteer runs:
+
+- Run a short pilot (`EVAL_SIZE=64`) with and without antidegen knobs.
+- Compare capping/truncation and prompt alignment.
+- Freeze one decode protocol before the full run.
 
 ## ASHA tuning (MODPO-only, fixed `w=0.7`)
 
@@ -59,7 +132,7 @@ multi-weight run.
 - Fixed weight: `w=0.7`
 - Pruning objective: `eval_rewards/margins` (maximize)
 - Sanity metric also logged: `eval_loss`
-- Tuned params by default: `learning_rate`, `weight_decay`, `warmup_ratio`, `beta`, `margin_beta` (via positive multiplier)
+- Tuned params by default: `learning_rate`, `weight_decay`, `warmup_ratio`, `beta`, `margin_beta` (signed; for verbosity-reduction studies, keep it negative)
 - Runtime dependency: `optuna` with Journal storage support (`JournalStorage` / `JournalFileBackend`)
 
 Run workers in `tmux` so SSH disconnects do not kill jobs. Launch one worker process per GPU:
