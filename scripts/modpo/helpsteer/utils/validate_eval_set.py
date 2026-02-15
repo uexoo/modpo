@@ -6,7 +6,9 @@ import os
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
-from src.data.configs import DEFAULT_PROMPT_TEMPLATE
+# Keep this utility lightweight so it works in eval-only environments
+# that do not have the full training stack (trl/peft) installed.
+DEFAULT_PROMPT_TEMPLATE = "\n\nHuman:\n{raw_prompt}\n\nAssistant:\n"
 
 
 @dataclass(frozen=True)
@@ -174,4 +176,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

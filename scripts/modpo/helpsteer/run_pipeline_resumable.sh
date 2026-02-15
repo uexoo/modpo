@@ -56,6 +56,7 @@ GEN_TEMPERATURE=${GEN_TEMPERATURE:-1.0}
 GEN_TOP_P=${GEN_TOP_P:-1.0}
 GEN_REPETITION_PENALTY=${GEN_REPETITION_PENALTY:-1.0}
 GEN_NO_REPEAT_NGRAM_SIZE=${GEN_NO_REPEAT_NGRAM_SIZE:-0}
+DATA_NUM_PROC=${DATA_NUM_PROC:-1}
 PRECISION=${PRECISION:-"bf16"}  # bf16|fp16|fp32 (forwarded to training scripts)
 
 # Core objective scaling
@@ -157,6 +158,10 @@ if ! [[ "${GEN_NO_REPEAT_NGRAM_SIZE}" =~ ^[0-9]+$ ]]; then
   echo "[ERROR] GEN_NO_REPEAT_NGRAM_SIZE must be an integer >= 0. Got: ${GEN_NO_REPEAT_NGRAM_SIZE}"
   exit 1
 fi
+if ! [[ "${DATA_NUM_PROC}" =~ ^[0-9]+$ ]] || [ "${DATA_NUM_PROC}" -le 0 ]; then
+  echo "[ERROR] DATA_NUM_PROC must be a positive integer. Got: ${DATA_NUM_PROC}"
+  exit 1
+fi
 
 read -r -a W_GRID <<< "${W_VALUES}"
 if [ "${#W_GRID[@]}" -eq 0 ]; then
@@ -226,6 +231,7 @@ echo "EVAL_SIZE=$EVAL_SIZE"
 echo "BETA=$BETA MARGIN_BETA=$MARGIN_BETA"
 echo "PRECISION=$PRECISION"
 echo "GEN_DO_SAMPLE=$GEN_DO_SAMPLE GEN_TEMPERATURE=$GEN_TEMPERATURE GEN_TOP_P=$GEN_TOP_P GEN_REPETITION_PENALTY=$GEN_REPETITION_PENALTY GEN_NO_REPEAT_NGRAM_SIZE=$GEN_NO_REPEAT_NGRAM_SIZE"
+echo "DATA_NUM_PROC=$DATA_NUM_PROC"
 echo "REQUIRE_EXPLICIT_CRITICALS=$REQUIRE_EXPLICIT_CRITICALS ENFORCE_NEGATIVE_MARGIN_BETA=$ENFORCE_NEGATIVE_MARGIN_BETA ENFORCE_PRD_W_GRID=$ENFORCE_PRD_W_GRID"
 if [ "${PREFLIGHT_ONLY:-0}" = "1" ]; then
   echo "PREFLIGHT_ONLY=1 -> exiting before training/generation."
@@ -244,6 +250,7 @@ accelerate launch scripts/examples/sft/sft.py \
   --dataset_name "nvidia/HelpSteer-pairwise-helpfulness" \
   --generate-during-eval False \
   --max_length "${TRAIN_MAX_LENGTH}" \
+  --num_proc "${DATA_NUM_PROC}" \
   --precision "${PRECISION}" \
   --training_args.output_dir "${SFT_OUT}" \
   --training_args.run_name "${RUN_TAG}_sft_helpfulness" \
@@ -296,6 +303,7 @@ accelerate launch scripts/examples/dpo/dpo.py \
   --beta "${BETA}" \
   --generate-during-eval False \
   --max_length "${TRAIN_MAX_LENGTH}" \
+  --num_proc "${DATA_NUM_PROC}" \
   --precision "${PRECISION}" \
   --training_args.output_dir "${MARGIN_OUT}" \
   --training_args.run_name "${RUN_TAG}_margin_verbosity_dpo" \
@@ -342,6 +350,7 @@ for w in "${W_GRID[@]}"; do
     --margin_beta "${MARGIN_BETA}" \
     --generate-during-eval False \
     --max_length "${TRAIN_MAX_LENGTH}" \
+    --num_proc "${DATA_NUM_PROC}" \
     --precision "${PRECISION}" \
     --training_args.output_dir "${OUT}" \
     --training_args.run_name "${RUN_TAG}_modpo_w${w}" \
