@@ -14,8 +14,6 @@ Reference: Ramé et al. (2023), "Rewarded Soups", NeurIPS 2023.
 from dataclasses import dataclass, field
 from typing import Optional
 import os
-import tempfile
-import shutil
 
 import torch
 import tyro
@@ -104,22 +102,14 @@ if __name__ == "__main__":
     n_params = sum(p.numel() for p in sd_interp.values())
     print_local_main(f"  interpolated {len(sd_interp)} tensors ({n_params:,} parameters)")
 
-    # Save interpolated adapter to a temp directory with the lower adapter's config
-    tmp_dir = tempfile.mkdtemp(prefix="lora_interp_")
-    bin_path = os.path.join(script_args.adapter_lower, "adapter_model.bin")
-    if os.path.exists(bin_path):
-        torch.save(sd_interp, os.path.join(tmp_dir, "adapter_model.bin"))
-    else:
-        # fall back to .bin even if source was safetensors (PeftModel loads both)
-        torch.save(sd_interp, os.path.join(tmp_dir, "adapter_model.bin"))
-    shutil.copy(
-        os.path.join(script_args.adapter_lower, "adapter_config.json"),
-        os.path.join(tmp_dir, "adapter_config.json")
-    )
-
     # ------------------------------------------------------------------
-    # 2) Load base model + interpolated adapter
+    # 2) Load base model + adapter, then replace weights in-place
     # ------------------------------------------------------------------
+    # Strategy: load PeftModel from the lower adapter (real checkpoint path,
+    # device_map="auto" dispatches correctly — same as gen.py), then
+    # overwrite LoRA parameter tensors with interpolated values on the
+    # correct device.  This avoids the temp-dir approach which fails to
+    # propagate device_map to the adapter.
     print_local_main("loading base model...")
     sft_model = AutoModelForCausalLM.from_pretrained(
         script_args.sft_model_name,
@@ -127,9 +117,19 @@ if __name__ == "__main__":
         torch_dtype=torch.bfloat16,
         device_map="auto",
     )
-    model = PeftModel.from_pretrained(sft_model, tmp_dir)
-    shutil.rmtree(tmp_dir)
-    print_local_main("interpolated model loaded")
+    model = PeftModel.from_pretrained(sft_model, script_args.adapter_lower)
+    print_local_main("adapter loaded, injecting interpolated weights...")
+
+    # Replace adapter weights in-place
+    replaced = 0
+    model_sd = dict(model.named_parameters())
+    for key, interp_val in sd_interp.items():
+        if key in model_sd:
+            model_sd[key].data.copy_(interp_val.to(model_sd[key].device, model_sd[key].dtype))
+            replaced += 1
+        else:
+            print_local_main(f"  WARNING: key {key} from adapter not found in model, skipping")
+    print_local_main(f"  replaced {replaced}/{len(sd_interp)} adapter parameter tensors")
 
     # tokenizer: left padding for generation (matches gen.py)
     tokenizer = AutoTokenizer.from_pretrained(script_args.sft_model_name, trust_remote_code=True)
