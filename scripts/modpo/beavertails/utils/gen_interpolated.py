@@ -30,6 +30,25 @@ from src.utils import (
 disable_progress_bar_non_local_main()
 
 
+def resolve_adapter_param_key(adapter_key, model_param_keys, adapter_name):
+    """Resolve adapter checkpoint keys to live PeftModel parameter keys."""
+    if adapter_key in model_param_keys:
+        return adapter_key
+
+    candidates = [adapter_key]
+    for token in ("lora_A", "lora_B", "lora_embedding_A", "lora_embedding_B"):
+        suffix = f".{token}.weight"
+        if adapter_key.endswith(suffix):
+            # PEFT modules usually include adapter namespace, e.g. `.default.weight`.
+            candidates.append(adapter_key[:-len(".weight")] + f".{adapter_name}.weight")
+            break
+
+    for candidate in candidates[1:]:
+        if candidate in model_param_keys:
+            return candidate
+    return None
+
+
 def load_adapter_weights(adapter_path):
     """Load adapter state dict, supporting both .bin and .safetensors formats."""
     bin_path = os.path.join(adapter_path, "adapter_model.bin")
@@ -61,8 +80,9 @@ class ScriptArguments:
 
     use_flash_attention_2: Optional[bool] = field(default=False, metadata={"help": "whether to use flash attention 2"})
     prompt_template: Optional[str] = field(default=DEFAULT_PROMPT_TEMPLATE, metadata={"help": "the prompt template"})
-    dataset_name: Optional[str] = field(default="PKU-Alignment/PKU-SafeRLHF-10K", metadata={"help": "the dataset name"})
+    dataset_name: Optional[str] = field(default="PKU-Alignment/PKU-SafeRLHF-10K-safer", metadata={"help": "the dataset name"})
     dataset_caching: Optional[bool] = field(default=False, metadata={"help": "use cached dataset"})
+    dataset_num_proc: Optional[int] = field(default=1, metadata={"help": "num_proc for dataset preprocessing"})
 
     output_dir: Optional[str] = field(default=None, metadata={"help": "output path for generations"})
     eval_size: Optional[int] = field(default=200, metadata={"help": "number of prompts for generation"})
@@ -120,21 +140,42 @@ if __name__ == "__main__":
     model = PeftModel.from_pretrained(sft_model, script_args.adapter_lower)
     print_local_main("adapter loaded, injecting interpolated weights...")
 
-    # Replace adapter weights in-place
+    # Replace adapter weights in-place.
+    active_adapter = getattr(model, "active_adapter", "default")
+    if isinstance(active_adapter, list):
+        active_adapter = active_adapter[0]
+
     replaced = 0
+    unresolved = []
     model_sd = dict(model.named_parameters())
+    model_param_keys = set(model_sd.keys())
     for key, interp_val in sd_interp.items():
-        if key in model_sd:
-            model_sd[key].data.copy_(interp_val.to(model_sd[key].device, model_sd[key].dtype))
-            replaced += 1
-        else:
-            print_local_main(f"  WARNING: key {key} from adapter not found in model, skipping")
+        resolved_key = resolve_adapter_param_key(key, model_param_keys, active_adapter)
+        if resolved_key is None:
+            unresolved.append(key)
+            continue
+        model_sd[resolved_key].data.copy_(interp_val.to(model_sd[resolved_key].device, model_sd[resolved_key].dtype))
+        replaced += 1
+
     print_local_main(f"  replaced {replaced}/{len(sd_interp)} adapter parameter tensors")
+    if unresolved:
+        preview = ", ".join(unresolved[:5])
+        raise ValueError(
+            f"Could not map {len(unresolved)} interpolated adapter keys to model parameters. "
+            f"First unresolved keys: {preview}"
+        )
 
     # tokenizer: left padding for generation (matches gen.py)
     tokenizer = AutoTokenizer.from_pretrained(script_args.sft_model_name, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "left"
+    model.eval()
+
+    try:
+        generation_device = model.get_input_embeddings().weight.device
+    except Exception:
+        generation_device = next(model.parameters()).device
+    print_local_main(f"generation input device: {generation_device}")
 
     # ------------------------------------------------------------------
     # 3) Load dataset
@@ -142,7 +183,10 @@ if __name__ == "__main__":
     if not script_args.dataset_caching:
         from datasets import disable_caching
         disable_caching()
-    rdp = DATASET_CONFIGS[script_args.dataset_name](prompt_template=script_args.prompt_template)
+    rdp = DATASET_CONFIGS[script_args.dataset_name](
+        prompt_template=script_args.prompt_template,
+        num_proc=script_args.dataset_num_proc,
+    )
     eval_dataset = rdp.get_sft_dataset(split="validation").select(range(script_args.eval_size))
 
     os.makedirs(script_args.output_dir, exist_ok=True)
@@ -161,8 +205,8 @@ if __name__ == "__main__":
             padding=True,
         )
         output_tokenized = model.generate(
-            input_ids=prompt_tokenized["input_ids"].cuda(),
-            attention_mask=prompt_tokenized["attention_mask"].cuda(),
+            input_ids=prompt_tokenized["input_ids"].to(generation_device),
+            attention_mask=prompt_tokenized["attention_mask"].to(generation_device),
             max_length=script_args.max_length,
         )
         output = tokenizer.batch_decode(output_tokenized, skip_special_tokens=True)
