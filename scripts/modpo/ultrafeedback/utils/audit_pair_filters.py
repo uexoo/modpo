@@ -40,10 +40,10 @@ def main():
     parser.add_argument("--output_json", default=None)
     args = parser.parse_args()
 
-    if args.min_gap <= 0:
-        raise ValueError("--min_gap must be > 0.")
-    if args.min_anchor_gap <= 0:
-        raise ValueError("--min_anchor_gap must be > 0.")
+    if args.min_gap < 0:
+        raise ValueError("--min_gap must be >= 0.")
+    if args.min_anchor_gap < 0:
+        raise ValueError("--min_anchor_gap must be >= 0.")
 
     max_prompts = args.max_prompts if args.max_prompts > 0 else None
     ds = _load_pair_dataset(

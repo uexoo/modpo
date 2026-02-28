@@ -46,6 +46,7 @@ OUTPUT_ROOT=${OUTPUT_ROOT:-"./outputs/helpsteer/v2"}
 RUN_TAG=${RUN_TAG:-"helpsteer_v2"}
 
 TRAIN_MAX_LENGTH=${TRAIN_MAX_LENGTH:-512}
+TRAIN_SEED=${TRAIN_SEED:-42}
 MAX_LENGTH=${MAX_LENGTH:-4096}
 MAX_INPUT_LENGTH=${MAX_INPUT_LENGTH:-1536}
 MAX_NEW_TOKENS=${MAX_NEW_TOKENS:-2560}
@@ -136,6 +137,10 @@ if ! [[ "${TRAIN_MAX_LENGTH}" =~ ^[0-9]+$ ]] || [ "${TRAIN_MAX_LENGTH}" -le 0 ];
   echo "[ERROR] TRAIN_MAX_LENGTH must be a positive integer. Got: ${TRAIN_MAX_LENGTH}"
   exit 1
 fi
+if ! [[ "${TRAIN_SEED}" =~ ^[0-9]+$ ]]; then
+  echo "[ERROR] TRAIN_SEED must be a non-negative integer. Got: ${TRAIN_SEED}"
+  exit 1
+fi
 if [ -n "${MAX_INPUT_LENGTH}" ]; then
   if ! [[ "${MAX_INPUT_LENGTH}" =~ ^[0-9]+$ ]] || [ "${MAX_INPUT_LENGTH}" -le 0 ]; then
     echo "[ERROR] MAX_INPUT_LENGTH must be empty or a positive integer. Got: ${MAX_INPUT_LENGTH}"
@@ -224,6 +229,7 @@ echo "OUTPUT_ROOT=$OUTPUT_ROOT"
 echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 echo "W_VALUES=$W_VALUES"
 echo "TRAIN_MAX_LENGTH=$TRAIN_MAX_LENGTH"
+echo "TRAIN_SEED=$TRAIN_SEED"
 echo "MAX_LENGTH=$MAX_LENGTH"
 echo "MAX_INPUT_LENGTH=$MAX_INPUT_LENGTH"
 echo "MAX_NEW_TOKENS=$MAX_NEW_TOKENS"
@@ -254,6 +260,7 @@ accelerate launch scripts/examples/sft/sft.py \
   --precision "${PRECISION}" \
   --training_args.output_dir "${SFT_OUT}" \
   --training_args.run_name "${RUN_TAG}_sft_helpfulness" \
+  --training_args.seed "${TRAIN_SEED}" \
   --training_args.max_steps "${SFT_MAX_STEPS}" \
   --training_args.per_device_train_batch_size "${TRAIN_BATCH_SIZE}" \
   --training_args.per_device_eval_batch_size "${EVAL_BATCH_SIZE}" \
@@ -307,6 +314,7 @@ accelerate launch scripts/examples/dpo/dpo.py \
   --precision "${PRECISION}" \
   --training_args.output_dir "${MARGIN_OUT}" \
   --training_args.run_name "${RUN_TAG}_margin_verbosity_dpo" \
+  --training_args.seed "${TRAIN_SEED}" \
   --training_args.max_steps "${DPO_MAX_STEPS}" \
   --training_args.per_device_train_batch_size "${TRAIN_BATCH_SIZE}" \
   --training_args.per_device_eval_batch_size "${EVAL_BATCH_SIZE}" \
@@ -354,6 +362,7 @@ for w in "${W_GRID[@]}"; do
     --precision "${PRECISION}" \
     --training_args.output_dir "${OUT}" \
     --training_args.run_name "${RUN_TAG}_modpo_w${w}" \
+    --training_args.seed "${TRAIN_SEED}" \
     --training_args.max_steps "${MODPO_MAX_STEPS}" \
     --training_args.per_device_train_batch_size "${TRAIN_BATCH_SIZE}" \
     --training_args.per_device_eval_batch_size "${EVAL_BATCH_SIZE}" \

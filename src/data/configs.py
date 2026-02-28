@@ -56,12 +56,30 @@ REAL_DATASET_CONFIGS: Dict[str, RawDatasetPreprocessor] = {
         dimension="truthfulness",
         min_gap=2.0,
     ),
+    "OpenBMB/UltraFeedback-helpfulness-clean-gap0": partial(
+        UltraFeedbackRDP,
+        dimension="helpfulness",
+        min_gap=0.0,
+    ),
+    "OpenBMB/UltraFeedback-truthfulness-clean-gap0": partial(
+        UltraFeedbackRDP,
+        dimension="truthfulness",
+        min_gap=0.0,
+    ),
     "OpenBMB/UltraFeedback-truthfulness-clean-gap2-conflict-with-helpfulness-gap2": partial(
         UltraFeedbackRDP,
         dimension="truthfulness",
         min_gap=2.0,
         anchor_dimension="helpfulness",
         min_anchor_gap=2.0,
+        require_disagreement_with_anchor=True,
+    ),
+    "OpenBMB/UltraFeedback-truthfulness-clean-gap0-conflict-with-helpfulness-gap0": partial(
+        UltraFeedbackRDP,
+        dimension="truthfulness",
+        min_gap=0.0,
+        anchor_dimension="helpfulness",
+        min_anchor_gap=0.0,
         require_disagreement_with_anchor=True,
     ),
 

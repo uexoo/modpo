@@ -114,10 +114,10 @@ class UltraFeedbackRDP(RawDatasetPreprocessor):
     def get_preference_dataset(self, split):
         if not self.dimension:
             raise ValueError("UltraFeedback preference requires --dimension.")
-        if self.min_gap <= 0:
-            raise ValueError(f"min_gap must be > 0. Got: {self.min_gap}")
-        if self.anchor_dimension and self.min_anchor_gap <= 0:
-            raise ValueError(f"min_anchor_gap must be > 0. Got: {self.min_anchor_gap}")
+        if self.min_gap < 0:
+            raise ValueError(f"min_gap must be >= 0. Got: {self.min_gap}")
+        if self.anchor_dimension and self.min_anchor_gap < 0:
+            raise ValueError(f"min_anchor_gap must be >= 0. Got: {self.min_anchor_gap}")
 
         dataset = self._get_raw_dataset(split)
         if self.sanity_check:
