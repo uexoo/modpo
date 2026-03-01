@@ -35,6 +35,7 @@ def main():
     parser.add_argument("--min_gap", type=float, default=2.0)
     parser.add_argument("--min_anchor_gap", type=float, default=2.0)
     parser.add_argument("--require_disagreement", action="store_true")
+    parser.add_argument("--require_agreement", action="store_true")
     parser.add_argument("--num_proc", type=int, default=1)
     parser.add_argument("--max_prompts", type=int, default=0)
     parser.add_argument("--output_json", default=None)
@@ -44,6 +45,8 @@ def main():
         raise ValueError("--min_gap must be >= 0.")
     if args.min_anchor_gap < 0:
         raise ValueError("--min_anchor_gap must be >= 0.")
+    if args.require_disagreement and args.require_agreement:
+        raise ValueError("--require_disagreement and --require_agreement cannot both be set.")
 
     max_prompts = args.max_prompts if args.max_prompts > 0 else None
     ds = _load_pair_dataset(
@@ -78,9 +81,16 @@ def main():
         and x[anc_gap] >= float(args.min_anchor_gap)
         and x[dim_cid] != x[anc_cid],
     )
+    agreement = max(0, joint_gap_ok - disagreement)
 
     disagreement_rate = (float(disagreement) / float(joint_gap_ok)) if joint_gap_ok else 0.0
-    final_pairs = disagreement if args.require_disagreement else joint_gap_ok
+    agreement_rate = (float(agreement) / float(joint_gap_ok)) if joint_gap_ok else 0.0
+    if args.require_disagreement:
+        final_pairs = disagreement
+    elif args.require_agreement:
+        final_pairs = agreement
+    else:
+        final_pairs = joint_gap_ok
     final_rate = (float(final_pairs) / float(total_pairs)) if total_pairs else 0.0
 
     out = {
@@ -91,6 +101,7 @@ def main():
         "min_gap": args.min_gap,
         "min_anchor_gap": args.min_anchor_gap,
         "require_disagreement": bool(args.require_disagreement),
+        "require_agreement": bool(args.require_agreement),
         "num_proc": args.num_proc,
         "max_prompts": args.max_prompts,
         "total_pairs": total_pairs,
@@ -101,6 +112,8 @@ def main():
         "joint_gap_ok_pairs": joint_gap_ok,
         "joint_disagreement_pairs": disagreement,
         "joint_disagreement_rate": disagreement_rate,
+        "joint_agreement_pairs": agreement,
+        "joint_agreement_rate": agreement_rate,
         "final_pairs": final_pairs,
         "final_pair_rate": final_rate,
     }

@@ -91,6 +91,7 @@ class UltraFeedbackRDP(RawDatasetPreprocessor):
     ] = None
     min_anchor_gap: float = 1.0
     require_disagreement_with_anchor: bool = False
+    require_agreement_with_anchor: bool = False
 
     def _get_raw_dataset(self, split):
         if split == "train":
@@ -118,6 +119,11 @@ class UltraFeedbackRDP(RawDatasetPreprocessor):
             raise ValueError(f"min_gap must be >= 0. Got: {self.min_gap}")
         if self.anchor_dimension and self.min_anchor_gap < 0:
             raise ValueError(f"min_anchor_gap must be >= 0. Got: {self.min_anchor_gap}")
+        if self.require_disagreement_with_anchor and self.require_agreement_with_anchor:
+            raise ValueError(
+                "require_disagreement_with_anchor and require_agreement_with_anchor "
+                "cannot both be True."
+            )
 
         dataset = self._get_raw_dataset(split)
         if self.sanity_check:
@@ -141,6 +147,10 @@ class UltraFeedbackRDP(RawDatasetPreprocessor):
             if self.require_disagreement_with_anchor:
                 dataset = dataset.filter(
                     lambda x: x[f"{self.dimension}_chosen_id"] != x[f"{self.anchor_dimension}_chosen_id"]
+                )
+            elif self.require_agreement_with_anchor:
+                dataset = dataset.filter(
+                    lambda x: x[f"{self.dimension}_chosen_id"] == x[f"{self.anchor_dimension}_chosen_id"]
                 )
         print_local_main("mapping dataset to standard format...")
         return dataset.map(
