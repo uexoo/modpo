@@ -183,6 +183,20 @@ bash scripts/modpo/helpsteer/run_armorm_eval.sh
 Note: ArmoRM often requires a newer Transformers/Accelerate stack than this repo’s pinned training deps; keep
 evaluation in a dedicated environment if needed (see `packages/modpo/setup_armorm_env.sh`).
 
+For reusable 2D analysis (alignment, truncation/capping, Pareto sets, paired deltas), run:
+
+```bash
+python scripts/modpo/helpsteer/utils/analyze_helpsteer_2d.py \
+  --eval_root "$OUTPUT_ROOT/eval" \
+  --tokenizer_path "$OUTPUT_ROOT/sft_helpfulness/merged_checkpoint" \
+  --x_key armorm_helpsteer-helpfulness \
+  --y_key armorm_helpsteer-verbosity \
+  --y_mode min \
+  --max_input_length 1536 \
+  --max_new_tokens 2560 \
+  --output_dir "$OUTPUT_ROOT/eval/analysis_2d"
+```
+
 ## Files
 
 - `scripts/modpo/helpsteer/run_pipeline_resumable.sh`: end-to-end resumable pipeline
@@ -193,4 +207,5 @@ evaluation in a dedicated environment if needed (see `packages/modpo/setup_armor
   and prints summary stats
 - `scripts/modpo/helpsteer/utils/validate_eval_set.py`: verifies that multiple generation dirs share the same prompt set
 - `scripts/modpo/helpsteer/utils/summarize_armorm_helpsteer.py`: prints a compact table for ArmoRM HelpSteer heads
+- `scripts/modpo/helpsteer/utils/analyze_helpsteer_2d.py`: computes 2D Pareto artifacts + capping diagnostics + paired deltas
 - `scripts/modpo/helpsteer/optuna_asha_modpo.py`: ASHA-style Optuna tuner for MODPO-only hyperparameter search
